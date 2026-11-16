@@ -144,6 +144,7 @@ targets: a 10,000-row history; 1,000 incoming events/s with bounded
 retention; a 10,000-event burst; local search p95 under 200 ms after
 indexing. Instruments evidence for hangs, main-actor work, allocations and
 energy; startup time and idle CPU measured *before* AI assistance is added.
+Compare identical workloads only, never framework marketing claims.
 
 The **1,000,000-unit run** (D-022) counts events ingested by the running
 app from the local replay fixture server at 1,000 events/s (about 17
@@ -155,3 +156,12 @@ target — runs against a real local instance are functional checks only.
 Results go to `perf/results/` with machine and commit; misses are kept,
 never rerun until green; numbers from one Mac are development
 observations.
+
+## Release and upkeep
+
+From the guide: track supported macOS releases and APIs (D-023), signing
+credentials, accessibility regressions and service-protocol compatibility
+(the capability handshake records the protocol version, and an
+incompatible one opens the diagnostic view); keep security-sensitive
+actions — pairing, scopes, the allowlist, the action pipeline — separately
+reviewed; keep the app useful without an AI provider.
