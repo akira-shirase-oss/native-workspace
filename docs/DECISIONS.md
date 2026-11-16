@@ -1,14 +1,19 @@
 # Decisions
 
-Deliberate choices seeded by the guide, newest last. D-NNN numbering is
-project-local, continuing the workspace convention. Each is a real
-trade-off — what was given up is stated, not just what was chosen.
+Deliberate choices, newest last. D-NNN numbering is project-local,
+continuing the workspace convention. D-001–D-010 are seeded by the guide;
+D-011–D-025 were decided before any code, to make the plan reachable, to
+settle the open questions with conservative defaults and to fix gaps a plan
+review found. Each is a real trade-off — what was given up is stated, not
+just what was chosen. What still needs the maintainer or another project is
+under *Open questions (still open)* and in the README's *Blocked on* table.
 
 - **D-001 — Optional track, honestly labeled.** The guide marks itself
   OPTIONAL CONCEPT. These documents are a planning basis: no code, no
   device purchase, no schedule commitment is implied. The cost of honesty
   here is that the project may never build — that is an acceptable
-  recorded outcome, not a failure to hide.
+  recorded outcome, not a failure to hide. *Refined by D-011: a time-boxed,
+  read-only exploration may write code; promotion decides the rest.*
 - **D-002 — Native UI, no webview shell.** SwiftUI + AppKit only; no
   Tauri/Electron/webview-hosted application. Reusing a Rust *service* or
   protocol is fine; reusing a web *page* as the interface is not. Given
@@ -44,6 +49,8 @@ trade-off — what was given up is stated, not just what was chosen.
   a granted capability, and model-generated commands never reach an
   unrestricted terminal. Given up: convenience flows ("just paste a root
   token"). Bought: revocation, blast radius and auditability are real.
+  *Neither paired service can issue a scoped token yet; see D-015 for the
+  development-only exception and W-1 for what ends it.*
 - **D-008 — Bounded retention with visible gaps.** History and event
   queues are capped; overload produces explicit gap markers, never a
   silently truncated view that looks complete. Given up: the appearance
@@ -54,12 +61,164 @@ trade-off — what was given up is stated, not just what was chosen.
   *selected, redacted* evidence, marks its output advisory, and leaves
   uncertainties visible. Given up: "AI-native" positioning. Bought: no
   provider dependency in the trust path — the failure case "AI proposes
-  an unsafe command" is answered structurally by the allowlist, not by
-  prompt engineering.
+  an unsafe command" is answered structurally, not by prompt engineering.
+  *Restated by D-014: the structural answer is the service's token scope
+  plus the absence of any process-spawning code; the allowlist is defense
+  in depth.*
 - **D-010 — Signing, updates and permissions are product surface.** Signed
   distribution with documented update behavior is part of the feature
   set, not a release-day chore: updates must preserve compatible local
   state, credential revocation must demand renewed authority, and a
   rollback/diagnostic route must exist. Given up: informal unsigned
-  distribution during development. Bought: the fourth required failure
-  case is testable from N1 onward.
+  distribution. Bought: the fourth required failure case is testable — its
+  revocation half from N1, its update half at N5. During exploration the
+  app is development-signed and not distributed (D-019).
+
+## Decisions made before code (2026-11-16)
+
+Each states the choice, the reason and what it costs. Numbers are proposed
+starting values; changing one needs a measurement and a new entry.
+
+- **D-011 — Exploration, then promotion.** The old rule forbade any code
+  until promotion, while the promotion gate required N0–N4 to be built, so
+  the gate could never be reached. Now: a time-boxed, read-only
+  *exploration* (N0–N2, at most three calendar weeks of work or 15 working
+  sessions) may write code in this repository, labeled exploration, with
+  development signing and no distribution or product claims. Its last step
+  is the promotion review (D-012). Only a promoted project builds N3–N5.
+  The guide's own order supports the cut: the read-only console is its
+  first useful release, and the action comes only after the read-only
+  experience is useful. Adopted because the maintainer asked for work to
+  start on every planned project (2026-11-16). Cost: exploration code may
+  be thrown away.
+- **D-012 — The comparison for "clearly more useful" is pre-registered.**
+  The protocol is committed before the first trial: at least three tasks,
+  each a seeded failure in a local Service Monitor instance; each done once
+  with the existing CLI and web dashboard and once with the app, on
+  different but equivalent seeds, alternating which interface goes first;
+  time to correct diagnosis, counted steps, wrong turns and notes recorded.
+  Pass: the app diagnoses every task correctly, its median time is at least
+  30% lower, and it needs fewer steps in at least two of three tasks. A
+  second person running the protocol is preferred. Reason: a method chosen
+  after the data can be bent to fit it. Cost: three seeded scenarios to
+  build and keep working.
+- **D-013 — First adapter: Service Monitor over HTTP.** Both candidate
+  services expose versioned HTTP APIs, so no local IPC contract is needed.
+  Service Monitor has the richer read surface for an investigation
+  (monitors, checks, incidents, maintenance), a web dashboard and CLI to
+  compare against, and a viewer role in its plans. The adapter polls the
+  service's paginated reads at a bounded interval; if a cursor or filter
+  the workflow needs is missing, that is a feature request to Service
+  Monitor, not a desktop workaround. The read-only build can construct only
+  `GET` requests. The durable workflow runner comes later, once it offers
+  read-scoped keys. Cost: one service's workflow decides the first design.
+- **D-014 — The service's token scope is the security boundary.** The app's
+  capability allowlist, confirmation sheets and `GET`-only build are
+  defense in depth; the service must refuse anything outside the paired
+  scope, and N4 proves it with a service-side 403 test. The app contains no
+  process-spawning code at all, enforced in CI, so no model output can
+  reach a shell. Reason: a client-side allowlist is UX; anyone holding the
+  token can skip the app. Cost: the action the app can offer depends on
+  what the service's scopes can express.
+- **D-015 — Development-only exception while scoped tokens do not exist.**
+  Today Service Monitor authenticates with one admin bearer token, and the
+  durable workflow runner requires one API key on mutating and admin routes
+  (since 2026-11-16) and leaves reads open on loopback; neither issues
+  scoped tokens. During exploration the app pairs only with a Service
+  Monitor instance on a loopback address, using its admin token from the
+  Keychain; the adapter can send only `GET`; and any token whose scope the
+  service cannot report is treated as admin-class and refused for a
+  non-loopback endpoint. This weakens invariant 2 for development only. No
+  non-loopback pairing and no release until Service Monitor offers a
+  read-only token through its public API (W-1). Cost: exploration never
+  touches a deployed instance.
+- **D-016 — Log text is untrusted and rendered inert.** ANSI and other
+  terminal escape sequences (CSI, OSC), C0 and C1 control characters other
+  than tab and newline, and the Unicode bidi overrides and isolates
+  (U+202A–U+202E, U+2066–U+2069) are shown as visible escapes, never
+  interpreted. Fixture `hostile-log-lines` proves it. Reason: escapes and
+  bidi overrides can make a log line display something other than what it
+  says. Cost: some coloured output loses its colours.
+- **D-017 — Redact before persisting or sending.** A redactor removes
+  secret-shaped text — `Authorization` values and bearer tokens, URL
+  credentials, query parameters such as `token`, `key`, `sig` and `secret`,
+  webhook URLs, JWTs, key-shaped strings — before text enters the local
+  index or an export. The view shows redacted text by default; "reveal"
+  re-fetches one item from the service without persisting it. Anything sent
+  to an AI provider is redacted, chosen by the user and previewed byte for
+  byte. The redactor is tested against a secret corpus, and it exists at
+  N2, before any assistance. Reason: the services' own logs can contain
+  secrets, and the app would otherwise index them to disk. Cost: redaction
+  false positives hide some harmless text until revealed.
+- **D-018 — Platform hardening.** Keychain items use
+  `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` (no sync to other
+  devices); the app ships with the App Sandbox (outgoing network entitlement
+  only) and the hardened runtime unless a measured need says otherwise; no
+  WebKit and no process-spawning API in any target, enforced in CI. Cost:
+  features that need broader entitlements need a new decision.
+- **D-019 — Distribution and updates: Developer ID, notarization,
+  Sparkle.** Direct distribution signed with Developer ID and notarized,
+  updating through Sparkle 2 with an EdDSA-signed appcast. The rollback and
+  diagnostic route: the previous signed build stays downloadable, and the
+  app can export a redacted diagnostics bundle. Local state is versioned;
+  a migration never deletes the old file until the new one is written, and
+  migrations are tested from every released version. This needs the paid
+  Apple Developer Program (W-4); exploration uses development signing and
+  is not distributed. The Mac App Store was not chosen for now: every
+  update, security fixes included, would wait on App Review, and Developer
+  ID with Sparkle is the common path for directly distributed developer
+  tools. Cost: an annual fee and update infrastructure, deferred until
+  promotion.
+- **D-020 — Local audit format.** Append-only JSON Lines in the app's
+  container, one record per authorized action: idempotency key, service,
+  action, exact parameters, confirmation time, request, response and
+  verified post-state. Each record carries the SHA-256 of the previous one,
+  so an edit or truncation is detectable; each write is fsynced. Kept for
+  one year, exportable. The service's own audit is authoritative where it
+  exists. Cost: a hash chain detects tampering; it does not prevent it.
+- **D-021 — Ingest bounds and the meaning of "responsive".** Proposed
+  starting bounds: an ingest queue of 10,000 events, 50,000 retained rows
+  per service, UI batches at most every 100 ms. On overflow new events are
+  dropped and counted into an open gap marker (count and time range); the
+  gap counts must equal the drop counter. "Responsive" means no main-thread
+  hang of 250 ms or more as reported by the Instruments Hangs instrument.
+  The bounds are tuned from N0 and N2 measurements with a new entry. Cost:
+  under sustained overload, history has holes — visible ones.
+- **D-022 — What the 1,000,000-unit run counts.** Events ingested by the
+  running app from the local replay fixture server at 1,000 events/s with
+  10,000-event bursts; plus 1,000,000 headless index queries at package
+  level for regressions; UI search p95 over 10,000 queries. The paired
+  service is never the load target — load-testing Service Monitor is that
+  project's job — so runs against a real instance are functional checks
+  only.
+- **D-023 — Supported macOS.** The current major macOS release and the
+  previous one; the deployment target is the previous one. CI pins one Xcode
+  version on a GitHub-hosted macOS runner, and every result records the
+  versions it ran on.
+- **D-024 — Milestone 0 starts with CI, a load scenario and a failure
+  drill.** N0 ships the CI job (format lint, build, tests, the architecture
+  checks), the package-level 1,000,000-event replay and the
+  `disconnect-restart` drill before any UI exists. A development Mac with
+  Xcode installed exists; pointing `xcode-select` at Xcode.app is an N0
+  setup step, not a blocker. A status cell says *Done* only with named
+  tests and an evidence path.
+- **D-025 — The one reversible action: pause and resume one monitor.**
+  Pausing is reversible (resume) and already exists in Service Monitor's
+  API. The adapter reads the monitor's state first and sends nothing if it
+  is already in the requested state, and after an uncertain response it
+  reads back before anything else. It needs a token scope that allows
+  pause and resume but not edit or delete, which Service Monitor does not
+  offer yet (W-2). If no such scope ever exists, the app stays read-only —
+  an acceptable outcome. Cost: N4 waits on another project's roadmap.
+
+## Open questions (still open)
+
+These need the maintainer or another project; each is in the README's
+*Blocked on* table.
+
+- **Read-only token (W-1)** — a viewer token through Service Monitor's
+  public API, built in Service Monitor under its own rules.
+- **Pause/resume scope (W-2)** — the scoped token for the one action.
+- **Promotion (W-3)** — the maintainer's decision after the comparison.
+- **Apple Developer Program (W-4)** — needed only for signed distribution
+  after promotion.

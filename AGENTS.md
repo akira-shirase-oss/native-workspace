@@ -1,41 +1,51 @@
 # Native Developer Workspace — agent instructions
 
-An OPTIONAL-TRACK concept: a macOS-native workbench for the workspace's own
-services (Service Monitor, durable-runner, later jsrt executions and
-Colophon release receipts). Contract:
-`../../docs/Project_Guides/10_Native_Developer_Workspace.docx` (guide 10, marked
-OPTIONAL CONCEPT). No code exists yet — these rules bind the moment any is
-written, and they strengthen, never weaken, `../../AGENTS.md`.
+An OPTIONAL-TRACK concept: a macOS-native workbench for the portfolio's own
+services (Service Monitor first; later the durable workflow runner,
+JavaScript-runtime executions and Colophon release receipts). Contract: the
+engineering guide `10_Native_Developer_Workspace.docx` (marked OPTIONAL
+CONCEPT; kept in the maintainer's workspace under `docs/Project_Guides/`,
+not in this repository). No code exists yet — these rules bind the moment
+any is written, and they strengthen, never weaken, the workspace rules.
 
 ## Read first
 
-1. `docs/END_GOAL.md` — what done means, scope, the six invariants, the
-   four required failure cases, the promotion gate.
+1. `docs/END_GOAL.md` — what done means, scope, the seven invariants, the
+   four required failure cases with their tests and pass conditions, the
+   promotion gate and the release gate.
 2. `docs/ARCHITECTURE.md` — sources of truth, components, data paths,
-   planned layout, the open questions list (do not guess past it).
-3. `docs/DECISIONS.md` — native-only UI, service authority, read-only
-   first, no-FFI, bounded retention with visible gaps.
-4. `docs/ROADMAP.md` — N0–N4 order; every status is "Planned — optional
-   track" until the maintainer promotes the concept.
+   planned layout.
+3. `docs/DECISIONS.md` — D-001–D-025 and the questions still open (do not
+   guess past them).
+4. `docs/ROADMAP.md` — exploration N0–N2, the promotion review, then N3–N5
+   only if promoted; a status cell says *Done* only with named tests and
+   an evidence path.
 
 ## Non-negotiables
 
-1. **Optional until promoted.** Do not scaffold code, create an Xcode
-   project, or present this as an active build. Promotion requires the
-   gate: one native workflow *demonstrated* clearly more useful than the
-   existing terminal or web interface on the same task.
+1. **Exploration, then promotion** (D-011). N0–N2 may be built as a
+   time-boxed, read-only exploration: code and an Xcode project are allowed,
+   labeled exploration, development-signed, never distributed or presented
+   as an active product. N3–N5 (assistance, the action, signed release)
+   start only after the promotion gate passes: the read-only workflow
+   *demonstrated* clearly more useful than the existing terminal or web
+   interface on the pre-registered comparison (D-012).
 2. **Native means native.** No Tauri, Electron, or webview-hosted UI
    anywhere in the app. Reusing a Rust service/protocol is expected;
    embedding a web page as the interface is not.
-3. **The service is the only authority.** The app calls the same versioned
-   API / permissioned IPC every other client uses, with the same
-   authorization. Never add a desktop-only bypass, and never hold broader
-   rights than the paired token's scopes.
+3. **The service is the only authority, and its token scope is the
+   security boundary** (D-014). The app calls the same versioned API every
+   other client uses, with the same authorization. Never add a desktop-only
+   bypass. The allowlist and confirmation sheets are defense in depth. The
+   only exception is D-015: during exploration, an admin token for a
+   loopback Service Monitor instance, with a `GET`-only adapter.
 4. **Read-only by default.** Explicit pairing per service, minimum token
-   scopes, Keychain-only credentials. Destructive or externally visible
-   actions confirm against *exact parameters*. A model-generated shell
-   string never reaches an unrestricted terminal; an approval never widens
-   the granted capability.
+   scopes, Keychain-only credentials (this device only). Destructive or
+   externally visible actions confirm against *exact parameters*. No target
+   contains process-spawning code, so a model-generated shell string has
+   nowhere to go; an approval never widens the granted capability. Log text
+   is untrusted and rendered inert (D-016); secrets are redacted before
+   indexing or sending (D-017).
 5. **Honest states, bounded everything.** Stale data is labeled
    stale-with-timestamp; `unknown`/`uncertain` are displayed states.
    History, queues, retention and the index are all bounded; dropped
@@ -53,10 +63,10 @@ written, and they strengthen, never weaken, `../../AGENTS.md`.
    workloads and acceptance targets*, not measurements. Every artifact
    (Instruments trace, workload run, UI-test result) records Mac model,
    macOS, Xcode/build, dataset and commit. Full runs meet the workspace
-   standard — ≥1,000,000 units where a traffic unit exists (events
-   ingested, searches, reconnect cycles) — and misses are kept, never
-   rerun until green. Numbers from this machine are development
-   observations, never production capacity.
+   standard: the 1,000,000-unit run counts events ingested by the app from
+   the local replay fixture server (D-022); the paired service is never the
+   load target. Misses are kept, never rerun until green. Numbers from
+   this machine are development observations, never production capacity.
 
 ## Platform rules (when code exists)
 
@@ -77,14 +87,19 @@ written, and they strengthen, never weaken, `../../AGENTS.md`.
 
 Every feature ships in the same change: XCTest coverage, a fixture path
 under `fixtures/` (recorded service responses + event streams — burst-10k,
-disconnect-mid-action, unsafe-proposal, revoked-credential), and a
+disconnect-restart, disconnect-mid-action, unsafe-proposal,
+revoked-credential, hostile-log-lines, secret-corpus), and a
 `perf/` workload scenario where a traffic unit exists. Every fixed bug
 gets a test that fails without it. UI stalls follow the guide's drill:
 reproduce, locate in Instruments, verify the fix, commit the traces.
 
-## Verification gate (planned — binds when code exists)
+## Verification gate (CI from the first N0 commit)
 
-`xcodebuild test` + the UI suite before every commit; `swift test` for the
-packages; Instruments evidence for any change on the ingest, search or
-action path; the four contract failure cases re-proven before the N4 gate
-review.
+`scripts/check.sh` runs what CI runs on a GitHub-hosted macOS runner with a
+pinned Xcode: `swift format lint --strict`; `swift build` and `swift test`
+for the packages; `xcodebuild test` with the UI suite once the app target
+exists; the architecture checks in `docs/ROADMAP.md` §N0 (no WebKit, no
+process spawning, pure packages free of SwiftUI/AppKit, `GET`-only
+read-only adapter); the drills of every finished milestone. Instruments
+evidence for any change on the ingest, search or action path. The failure
+cases each gate names are re-proven on the commit that claims the gate.

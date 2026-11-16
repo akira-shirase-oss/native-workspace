@@ -1,110 +1,108 @@
 # Architecture
 
-Planned architecture — no code exists yet. Sources of truth and data paths
-are contract-level; crate/package names are placeholders fixed at N0.
+Planned architecture — no code exists yet. Package names are placeholders
+fixed at N0.
 
 ## Sources of truth
 
 1. **The paired services are the only authority** — status, log history,
    failure detail and action results are service state, read and written
-   through the service's own versioned API or permissioned IPC. The app
-   never edits service state directly.
-2. **The Keychain is the only credential store.** Tokens are scoped per
-   service at pairing; nothing secrets-shaped lives in preferences, logs
-   or the index.
-3. **The local index is disposable.** The bounded search index, cached
-   views and preferences are rebuilt or re-fetched; losing them loses no
-   truth. Their lifecycle is explicit (what is kept, for how long, how it
-   is wiped).
-4. **The audit record of authorized actions is durable.** What the user
-   confirmed, with which exact parameters, and what result came back is
-   recorded locally; services with their own audit (e.g. Colophon) keep
-   the authoritative half. The exact local format is an open question —
-   decided at N4, not guessed now.
+   through the service's own versioned HTTP API. The app never edits
+   service state directly.
+2. **The service's token scope is the security boundary.** What the app
+   may do is what the paired token lets the service accept. The app's
+   allowlist and confirmation sheets are defense in depth (D-014).
+3. **The Keychain is the only credential store.** Tokens are stored per
+   service at pairing with this-device-only accessibility; nothing
+   secret-shaped lives in preferences, logs or the index.
+4. **The local index is disposable.** The bounded search index (redacted
+   text, D-017), cached views and preferences are rebuilt or re-fetched;
+   losing them loses no truth. Their lifecycle is explicit: what is kept,
+   for how long, how it is wiped.
+5. **The local audit record of authorized actions is durable** (D-020).
+   Services with their own audit keep the authoritative half.
 
 ## Components
 
 | Component | Role |
 |---|---|
-| App shell (SwiftUI + AppKit) | Navigation, menus, shortcuts, accessibility, windows. Native controls only — no webview-hosted UI. |
-| Connection/session model | Typed pairing per service: scopes granted, endpoint, protocol version, token in Keychain. Owns connect/disconnect/stale state with timestamps. |
-| Service adapters | One per service (first: Service Monitor *or* durable-runner — open question). Versioned HTTP or permissioned local IPC; reconnect with backoff; stale labeling. |
-| Event ingest | Bounded queues, batching into UI updates, backpressure, gap markers on overflow — the 10k-burst case lives here. |
-| Local index | Bounded search index over retained history plus preferences. Disposable; rebuilt on launch. |
-| Assistance adapter | Optional AI provider: summarizes *selected, redacted* evidence; output marked advisory; every proposed action checked against the capability allowlist. App fully functional with no provider. |
-| Action pipeline | Propose → display exact parameters → explicit confirmation → authorize with an idempotency key → audit → observe verified result. One reversible command total in the first release. |
+| App shell (SwiftUI + AppKit) | Navigation, menus, shortcuts, accessibility, windows. Native controls only — no WebKit anywhere (CI checks). |
+| Connection/session model | Typed pairing per service: endpoint, protocol version, granted scopes as reported by the service (or "unknown, treat as admin"), token in Keychain. Owns connect, disconnect, stale and revoked states with timestamps. |
+| Service adapters | One per service; first Service Monitor (D-013). Versioned HTTP with bounded polling; reconnect with backoff; stale labeling. The read-only build can construct only `GET` requests (a test proves it). |
+| Text sanitizer | Turns untrusted log text into inert display text: terminal escapes, control characters and bidi overrides become visible escapes (D-016). |
+| Redactor | Removes secret-shaped text before it is indexed, exported or sent to an AI provider (D-017). Tested against a corpus. |
+| Event ingest | Bounded queue, batching into UI updates, gap markers on overflow (D-021) — the 10,000-burst case lives here. |
+| Local index | Bounded search index over retained, redacted history plus preferences. Disposable; rebuilt on launch. |
+| Assistance adapter (after promotion) | Optional AI provider: summarizes *selected, redacted, previewed* evidence; output marked advisory; every proposed action checked against the capability allowlist. App fully functional with no provider. |
+| Action pipeline (after promotion) | Propose → display exact parameters → explicit confirmation → read current state → submit once with an idempotency key → audit → verify the post-state from the service. One reversible command in total. |
 
 ## Paths
 
-**Pair:** user names a service + endpoint → token with minimum scopes into
-Keychain → capability handshake (protocol version, granted scopes) →
-service appears in the sidebar. Unpairing revokes and wipes that service's
-local index — the data lifecycle is per-service.
+**Pair:** the user names a service and endpoint → the token goes into the
+Keychain → capability handshake (protocol version, granted scopes if the
+service reports them) → the service appears in the sidebar. A token whose
+scope the service cannot report is treated as admin-class and may only be
+paired with a loopback endpoint (D-015). Unpairing deletes the Keychain
+item and wipes that service's local index.
 
-**Inspect:** adapter queries the service → responses fill the bounded
-index → search/history views read the index → disconnect marks every view
-from that service stale-with-timestamp; reconnect resumes without
-re-pairing and without re-sending any authorized action.
+**Inspect:** the adapter polls the service's paginated reads at a bounded
+interval (2 s while visible, backing off while hidden) → responses pass the
+sanitizer and the redactor → the bounded index → search and history views
+read the index → a disconnect marks every view from that service "stale
+since T"; reconnect resumes without re-pairing and without re-sending any
+authorized action. A 401 marks the service "authority revoked" and stops
+polling.
 
 **Investigate:** select a failed operation → gather its evidence bundle →
-(optional) assistance adapter redacts and summarizes → proposed action
-rendered with exact parameters; allowlist refusal shown as refusal, not
-silence.
+(optional, after promotion) the assistance adapter shows exactly what it
+would send, then summarizes → a proposed action is rendered with exact
+parameters; an allowlist refusal is shown as a refusal, not silence.
 
-**Act:** confirmation sheet shows exact parameters → authorize → the
-adapter submits once under an idempotency key → audit record → result and
-post-state verified from the service, not assumed. Reconnect mid-action
-surfaces `uncertain`, then reconciles against the service — it never
-blindly retries.
+**Act (after promotion):** confirmation sheet with exact parameters →
+authorize → the adapter reads the current state and sends nothing if the
+target is already in the requested state → otherwise submits once under an
+idempotency key → audit record → the result and post-state are verified
+from the service. A disconnect mid-action shows `uncertain`, then reads
+back before anything else — never a blind retry.
 
-**Burst:** ingest admits into bounded queues → dropped events become
-explicit gap markers → updates batch onto the main actor → long lists
-virtualize.
+**Burst:** ingest admits into the bounded queue → overflow drops and counts
+into an open gap marker (count and time range) → updates batch onto the
+main actor at most every 100 ms → long lists virtualize.
 
 ## Consistency story
 
 The service wins every disagreement; the app only ever *displays* and
-*submits*. Freshness is a label on every view (live / stale-since-T), not
-a property of the data. Authorized actions are made safe against the
-client's own failures by idempotency keys — the honest model is
-at-most-once *effect* with `uncertain` states reconciled, matching how the
-services themselves treat external calls. The local index can lie by
-being behind; it can never lie by being ahead, and it is never
-authoritative.
+*submits*. Freshness is a label on every view (live / stale since T /
+authority revoked), not a property of the data. Authorized actions are made
+safe against the client's own failures by state read-back and idempotency
+keys — the honest model is at-most-once *effect*, with `uncertain` states
+reconciled, matching how the services themselves treat external calls.
+The local index can lie by being behind; it can never lie by being ahead,
+and it is never authoritative.
 
 ## Planned layout
 
 ```
 app/             Xcode project: SwiftUI shell, AppKit pieces, UI tests
 packages/        SwiftPM packages — connection model, service adapters,
-                 ingest, local index, assistance, action pipeline
-                 (pure logic stays SwiftPM so `swift test` covers it)
-fixtures/        recorded service responses + event streams:
-                 burst-10k, disconnect-mid-action, unsafe-proposal,
-                 revoked-credential
+                 sanitizer, redactor, ingest, local index, assistance,
+                 action pipeline (pure logic stays in SwiftPM so
+                 `swift test` covers it without the app)
+fixtures/        replay server and recorded service responses + event
+                 streams: burst-10k, disconnect-restart,
+                 disconnect-mid-action, unsafe-proposal,
+                 revoked-credential, hostile-log-lines, secret-corpus
 perf/            workload drivers, Instruments traces, results/
                  (machine + OS + build + commit on every run)
+scripts/         check.sh (what CI runs), architecture checks
 docs/            this set; module docs added when code lands
 ```
 
-## Open questions (the guide leaves these open — do not guess)
+## Decisions and open questions
 
-- **First adapter:** Service Monitor or durable-runner — the guide offers
-  either. Chosen at N2 by whichever service's API best exercises the
-  inspect/investigate workflow.
-- **Transport per adapter:** versioned HTTP API vs permissioned local IPC.
-  The guide permits both; decided per service when the adapter is built.
-- **The first reversible action:** unspecified. Candidates are whatever the
-  chosen service already exposes as scoped and reversible; fixed at N4.
-- **Local audit format:** file format and retention for authorized-action
-  records.
-- **Update mechanism:** signed distribution is required; the mechanism
-  (Sparkle-style, signed pkg, App Store) is undecided — "documented update
-  behavior" is the contract, the vehicle is open.
-- **Gate comparison method:** how "clearly more useful" is measured for
-  the promotion gate — fixed before the N4 gate review.
-- **Supported macOS matrix:** which releases the app tracks — set when a
-  build exists.
-- **Device availability:** macOS-first is the suggested boundary, not a
-  confirmed device purchase; N0 cannot start without a supported
-  Mac/Xcode environment.
+The questions this architecture used to leave open — first adapter,
+transport, the first action, the audit format, the update mechanism, the
+comparison method, the macOS matrix, device availability — are decided in
+`DECISIONS.md` (D-011–D-025). What still needs the maintainer or another
+project is in its *Open questions (still open)* and in the README's
+*Blocked on* table.
