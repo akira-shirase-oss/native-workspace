@@ -177,6 +177,13 @@ starting values; changing one needs a measurement and a new entry.
   N2, before any assistance. Reason: the services' own logs can contain
   secrets, and the app would otherwise index them to disk. Cost: redaction
   false positives hide some harmless text until revealed.
+  *N0 exception (2026-11-17):* the redactor does not exist yet, so N0
+  persists service text as the service sent it — cut to 8 KiB per event
+  (F7), in the private, single-instance store directory (0700, D-028), and
+  rendered inert only at display. Secret-shaped text in a check detail is
+  therefore on disk in N0 builds. Exploration pairs only with loopback
+  scratch instances (D-015), and the redactor lands at N2, before any
+  export or assistance.
 - **D-018 — Platform hardening.** Keychain items use
   `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` (no sync to other
   devices); the app ships with the App Sandbox (outgoing network entitlement
@@ -211,6 +218,13 @@ starting values; changing one needs a measurement and a new entry.
   hang of 250 ms or more as reported by the Instruments Hangs instrument.
   The bounds are tuned from N0 and N2 measurements with a new entry. Cost:
   under sustained overload, history has holes — visible ones.
+  *As built in N0 (2026-11-17):* one window shared by all services —
+  50,000 events and 64 MiB in memory, the disk bounded by bytes too — not
+  50,000 per service, so a noisy service can evict another's history.
+  De-duplication covers the retained window only: an event that left it
+  and is offered again is stored again. Today's polls re-read at most about
+  5,200 events, far inside the window, so that cannot happen yet.
+  Per-service windows and an identity set sized to disk retention are N2.
 - **D-022 — What the 1,000,000-unit run counts.** Events ingested by the
   running app from the local replay fixture server at 1,000 events/s with
   10,000-event bursts; plus 1,000,000 headless index queries at package
@@ -251,7 +265,7 @@ starting values; changing one needs a measurement and a new entry.
   (observer removal, KVO bookkeeping) grows with the observers already on the
   window. Now an `NSTableView` with fixed row heights and `reloadData` builds
   only visible rows: same load, 0 hangs (watchdog and Instruments), worst
-  wait 41–62 ms, peak 83–95 MB (`perf/results/app/README.md`). Given up: a pure
+  wait 41–62 ms, peak 83–95 MB (`perf/results/README.md`, *App*). Given up: a pure
   SwiftUI list and multi-line rows in the list (a detail view shows a full
   line, N2). The old list stays behind `NW_EVENT_LIST=swiftui-list` so the
   profiling drill can be reproduced.

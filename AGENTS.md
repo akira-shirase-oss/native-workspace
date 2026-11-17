@@ -16,7 +16,7 @@ strengthen, never weaken, the workspace rules.
    promotion gate and the release gate.
 2. `docs/ARCHITECTURE.md` — sources of truth, components, data paths,
    planned layout.
-3. `docs/DECISIONS.md` — D-001–D-025 and the questions still open (do not
+3. `docs/DECISIONS.md` — D-001–D-028 and the questions still open (do not
    guess past them).
 4. `docs/ROADMAP.md` — exploration N0–N2, the promotion review, then N3–N5
    only if promoted; a status cell says *Done* only with named tests and

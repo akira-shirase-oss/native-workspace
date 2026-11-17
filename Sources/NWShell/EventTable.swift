@@ -10,7 +10,7 @@ import SwiftUI
 /// the bottom and insertions at the top, so the selected event stays
 /// selected and a scrolled view keeps the rows being read. (The profiling drill that found
 /// the SwiftUI `List` version stalling the main thread is in
-/// `perf/results/app/README.md`; `NW_EVENT_LIST=swiftui-list` brings that
+/// `perf/results/README.md`, *App*; `NW_EVENT_LIST=swiftui-list` brings that
 /// version back to reproduce it.) Cells are plain-text `NSTextField`s set
 /// through `stringValue`: no attributed text, no markup, no links (D-016).
 struct EventTable: NSViewRepresentable {

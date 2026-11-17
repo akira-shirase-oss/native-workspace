@@ -49,15 +49,46 @@ Mac (Apple M2 Pro, 12 cores, 32 GB, macOS 27.2.1, Xcode 27.2 / Swift 6.4.2).
 | Gate item | State | Proof |
 |---|---|---|
 | CI green on the first commit | **Done** | `.github/workflows/ci.yml` runs `scripts/check.sh` on `macos-26` with Xcode 26.6 pinned (checkout pinned by SHA, `contents: read`); green on `65564ea`, `64c10e4`, `f232c6a` and later pushes |
-| `swift format lint --strict`, `swift build`, `swift test` | **Done** | `scripts/check.sh` (warnings are errors); 75 XCTest cases, two of them stated skips (the Keychain round trip needs the entitled app, N1; the real-service drill runs only under its driver) |
+| `swift format lint --strict`, `swift build`, `swift test` | **Done** | `scripts/check.sh` (warnings are errors); 112 XCTest cases, two of them stated skips (the Keychain round trip needs the entitled app, N1; the real-service drill runs only under its driver) |
 | Architecture checks (no WebKit, no process spawning, pure packages free of SwiftUI/AppKit, GET-only adapter) | **Done** | `scripts/arch-check.sh` (source rules, comment- and string-aware; plus `otool -L` on the built products); `scripts/test-arch-check.sh` plants 40 violations and proves each fails (plus a missing transport, and a clean tree that must pass) — including a network read by URL outside the transport, interpolated `Text` literals and `LocalizedStringKey`, a markdown call split over lines, `dlsym`/`NSClassFromString` lookups, and the app reaching the fixtures through a multi-line or indirect dependency; `TransportTests` proves at run time that the only request built is a bodyless `GET` and the fixture server records only `GET` |
 | `disconnect-restart`, package level: stale with timestamp, backoff, zero duplicate rows | **Done** | `DisconnectRestartDrillTests` (100 random kill/restart points in CI; the recorded 1,000-point run — 0 live while down, 0 missed recoveries, 98,469 events acknowledged, 0 lost, 0 duplicate rows, 19,661 requests all `GET` — is `perf/results/drills/package-disconnect-restart-1000-20261117T020900Z-4d16592.json`) and `FreshnessTests` (backoff 1 s → 30 s with jitter; never live after a failure; 2,000 random histories never label stale data live) |
 | `disconnect-restart` against the real services | **Done** (beyond the N0 gate) | `RealServiceDrillTests` via `scripts/drill-real-services.sh`: scratch Service Monitor `659e468` and Durable Runner `3da25ef`, 5 SIGKILL/restart cycles on `f232c6a` — `perf/results/drills/real-disconnect-restart-20261117T020729Z-f232c6a.json` |
 | Package replay of 1,000,000 events: throughput, drops, gap counts = drops, peak memory | **Owed** (full run) | `nw-replay` and `scripts/replay.sh --full`, which refuses at load ≥ 6; load never fell below 16 this session. Smoke only: CI's 30,000-event run, and `perf/results/replay-smoke-busy-*-4d16592.json` (ledger exact: 35,000 offered = 33,000 admitted + 2,000 dropped; gap counts 2,000; 4,000 duplicates refused; 0 hangs; 28.7 MB peak) |
-| Learning drill: reproduce a UI stall, locate it in Instruments, verify the fix | **Done** | Reproduced (main-thread waits of 72.2 s and 78.6 s, 1.7–2.0 GB); located with `sample(1)` and Instruments (100% of main-thread samples in SwiftUI `List`'s diff, 78% building a hosting view per inserted row); fixed with an AppKit table (D-026); verified under the same load with the watchdog and Instruments (0 hangs, worst wait 41–62 ms, 83–95 MB) — `perf/results/app/README.md`. The trace bundles are summarized and their hang tables committed, not the 15–25 MB bundles. The maintainer may want to repeat it as the learning exercise it is meant to be: `scripts/measure-app.sh --stall` reproduces it |
+| Learning drill: reproduce a UI stall, locate it in Instruments, verify the fix | **Done** | Reproduced (main-thread waits of 72.2 s and 78.6 s, 1.7–2.0 GB); located with `sample(1)` and Instruments (100% of main-thread samples in SwiftUI `List`'s diff, 78% building a hosting view per inserted row); fixed with an AppKit table (D-026); verified under the same load with the watchdog and Instruments (0 hangs, worst wait 41–62 ms, 83–95 MB) — `perf/results/README.md (*App*)`. The trace bundles are summarized and their hang tables committed, not the 15–25 MB bundles. The maintainer may want to repeat it as the learning exercise it is meant to be: `scripts/measure-app.sh --stall` reproduces it |
 | Main thread never hangs ≥ 250 ms (measured) | **Observed** under fixture load | the app's watchdog and Instruments' Hangs table (above), and every replay's watchdog |
 | Mac, macOS, Xcode and build recorded | **Done** | in every result file |
 | `xcode-select` pointed at Xcode.app | **Not done — maintainer** | needs `sudo`; every script sets `DEVELOPER_DIR` instead, which CI does too |
+
+### Fix round after the independent review (2026-11-16/17)
+
+Each fix landed in its own commit with a test that failed first; the
+gate ran before every push and CI confirmed each push (or, when a later
+push cancelled a run, the run that contained it).
+
+| Fix | What changed | Proof (failed before the fix) |
+|---|---|---|
+| F1 `b189c12` | every status string shown is an `InertString` with a length cap; wire states map only up/down/unknown | `ViewStringsTests` walks every view-model string by reflection (14 failures before) |
+| F2 `98294e9` | inertness decided by Unicode property; combining marks capped per base | `InertTextPropertyTests` over all 1,114,112 code points (952,483 property scalars raw before) |
+| F3 `eb6aa02`, `3bf34e6` | ids validated as UUIDs, one percent-encoded segment each, no traps | `HostileDataTests` incl. a seeded fuzz (the process crashed before) |
+| F5 `00fcf69` | store failure → unstored gap rows with exact counts, a non-green "not recording", recovery onto a fresh segment | `StoreFailureTests`, `AppModelStoreFailureTests` (20 lost, 0 gap rows before) |
+| F6 `1970a80` | F_FULLFSYNC falls back only on ENOTSUP-class errors; sync calls injectable | `StoreSyncTests` (EIO batch acknowledged before; a never-sync mutant now fails) |
+| F7 `10b3763` | 8 KiB text and 512-byte key caps; memory and disk bounded in bytes | `StoreBytesTests` (210 MB in memory and on disk before) |
+| F4 `d36b21e` | the token goes only to the pinned program on the loopback port; `localhost` → 127.0.0.1 | `ServerIdentityTests`, `ServerIdentityGateTests` (21 token-bearing requests to an impostor before), and the real drill's impostor phase: 0 requests |
+| F8 `719272f` | store opened and first rows prepared off the main actor | `LaunchTests` (663 ms stall before); release, 60k events: 166 ms, 0 hangs |
+| F9 `f82540b` | incremental table updates keep the selection and the rows in view | `EventTableTests` (selection lost, view jumped 20 rows before) |
+| F10 `bc1f35e` | the transport's timer is the deadline; URLSession only a backstop at 2× | the trickle test fails with the timer removed (0.82 s vs 0.7 s) |
+| F11 `9588924` | architecture-check bypasses closed | 9 new planted cases all passed the old check |
+| F12 `c11c3ea` | invalid UTF-8 and lone surrogate escapes repaired; unreadable items skipped and counted | `LossyDecodeTests` (both polls failed before) |
+| F15 `6683191` | store directory 0700 and an exclusive lock | `StoreInstanceTests` (0755 kept and a second open succeeded before) |
+| F17 `30e6920` | the environment token is unset once read; the risk documented | `EnvironmentTokenTests` (still set before) |
+| F14 `b616812` | response chunks appended in place | performance only (a review microbenchmark: 38 ms → 0.6 ms); no behaviour to test |
+
+Still owed from the review: **F16**, freshness uses the wall clock, so a
+backward clock step could hold `lastGood` in the future (suspected, low;
+a monotonic instant for the rule is planned for N1). **F13** is
+documented rather than fixed (D-021: one shared window, de-duplication
+within retention). The redactor (D-017) is still N2, and N0 stores raw
+service text until then (D-017, N0 exception).
 
 Also in N0, ahead of later gates: the bounded store acknowledges only
 synced batches and survives reopen (`EventStoreTests`, both drills); the
