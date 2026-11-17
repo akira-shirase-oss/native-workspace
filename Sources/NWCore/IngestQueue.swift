@@ -34,7 +34,7 @@ public final class IngestQueue: Sendable {
         s.stats.offered += 1
         if s.eventDepth < capacity {
           s.openGap = nil
-          s.push(.event(event))
+          s.push(.event(event.boundedForStorage()))
           s.eventDepth += 1
           s.stats.admitted += 1
           admitted += 1

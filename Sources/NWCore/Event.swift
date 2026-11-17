@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// Which paired service an event came from. A plain string so a new adapter
@@ -81,6 +82,41 @@ public struct Event: Sendable, Codable, Hashable {
 
   /// The store's de-duplication identity.
   public var identity: EventIdentity { EventIdentity(service: service, key: key) }
+
+  /// Stored text per event, in UTF-8 bytes. Longer text (a check detail
+  /// can be megabytes) is cut, and the cut is stated.
+  public static let maxTextBytes = 8_192
+  /// Longer keys are replaced by a SHA-256 of the key: stable, so
+  /// de-duplication still works, and bounded.
+  public static let maxKeyBytes = 512
+
+  /// The event as it may be held and stored: text and key bounded in bytes.
+  /// Idempotent.
+  public func boundedForStorage() -> Event {
+    var event = self
+    if key.utf8.count > Self.maxKeyBytes {
+      let digest = SHA256.hash(data: Data(key.utf8)).map { String(format: "%02x", $0) }.joined()
+      event.key = "sha256:" + digest
+    }
+    let bytes = text.utf8.count
+    if bytes > Self.maxTextBytes {
+      let suffix = " … [\(bytes - Self.maxTextBytes) bytes cut]"
+      // Cut on the UTF-8 bytes, backing off to the start of a scalar.
+      var prefix = Array(text.utf8.prefix(Self.maxTextBytes - suffix.utf8.count))
+      var lead = prefix.count - 1
+      while lead >= 0, prefix[lead] & 0xC0 == 0x80 { lead -= 1 }
+      if lead >= 0 {
+        let byte = prefix[lead]
+        let length = byte < 0x80 ? 1 : byte >= 0xF0 ? 4 : byte >= 0xE0 ? 3 : 2
+        if prefix.count - lead < length { prefix.removeSubrange(lead...) }  // incomplete scalar
+      }
+      event.text = String(decoding: prefix, as: UTF8.self) + suffix
+    }
+    return event
+  }
+
+  /// What the store counts against its byte budget for this event.
+  var approximateBytes: Int { text.utf8.count + key.utf8.count + 128 }
 
   enum CodingKeys: String, CodingKey {
     case seq = "s"

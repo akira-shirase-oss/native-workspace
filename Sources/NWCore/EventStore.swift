@@ -53,6 +53,8 @@ public struct StoreStats: Sendable, Equatable, Codable {
   public var loadedFromDisk: Int = 0
   public var segmentsOnDisk: Int = 0
   public var lastSeq: UInt64 = 0
+  /// Bytes the retained events count against `retentionBytes`.
+  public var retainedBytes: Int = 0
   /// Batches acknowledged after `fsync` because the file system does not
   /// support `F_FULLFSYNC` (ENOTSUP-class): the durability actually reached.
   public var fullSyncFallbacks: UInt64 = 0
@@ -91,16 +93,28 @@ public final class EventStore: Sendable {
     public var segmentEvents: Int
     public var durability: Durability
     public var syncCalls: SyncCalls
+    /// Bytes of events held in memory (text, key and a fixed overhead each);
+    /// the oldest are evicted past it, as past `retention`.
+    public var retentionBytes: Int
+    /// A segment is closed at `segmentEvents` events or this many bytes.
+    public var segmentBytes: Int
+    /// Hard cap on the bytes of all segments on disk; whole segments age
+    /// out past it.
+    public var maxDiskBytes: Int
 
     public init(
       directory: URL?, retention: Int = 50_000, segmentEvents: Int = 10_000,
-      durability: Durability = .fullFsync, syncCalls: SyncCalls = .system
+      durability: Durability = .fullFsync, syncCalls: SyncCalls = .system,
+      retentionBytes: Int = 64 << 20, segmentBytes: Int = 8 << 20, maxDiskBytes: Int? = nil
     ) {
       self.directory = directory
       self.retention = retention
       self.segmentEvents = segmentEvents
       self.durability = durability
       self.syncCalls = syncCalls
+      self.retentionBytes = retentionBytes
+      self.segmentBytes = segmentBytes
+      self.maxDiskBytes = maxDiskBytes ?? (retentionBytes + 2 * segmentBytes)
     }
   }
 
@@ -113,7 +127,8 @@ public final class EventStore: Sendable {
   public init(_ configuration: Configuration, freshSegment: Bool = false) throws(StoreError) {
     precondition(configuration.retention > 0 && configuration.segmentEvents > 0)
     self.configuration = configuration
-    var s = StoreState(retention: configuration.retention)
+    var s = StoreState(
+      retention: configuration.retention, retentionBytes: configuration.retentionBytes)
     if let directory = configuration.directory {
       try s.open(
         directory: directory, segmentEvents: configuration.segmentEvents,
@@ -135,7 +150,8 @@ public final class EventStore: Sendable {
       var batchIDs = Set<EventIdentity>()
       var duplicates = 0
       var seq = s.stats.lastSeq
-      for var event in events {
+      for incoming in events {
+        var event = incoming.boundedForStorage()
         let id = event.identity
         if s.identities.contains(id) || !batchIDs.insert(id).inserted {
           duplicates += 1
@@ -178,12 +194,18 @@ private struct Segment {
   var url: URL
   var firstSeq: UInt64
   var count: Int
+  var bytes: Int
 }
 
 private struct StoreState {
   let retention: Int
-  var ring: [Event] = []
+  let retentionBytes: Int
+  /// The memory window: a ring of at most `retention` events and at most
+  /// `retentionBytes` bytes, oldest at `head`.
+  var ring: [Event?]
   var head = 0
+  var count = 0
+  var retainedBytes = 0
   var identities = Set<EventIdentity>()
   var stats = StoreStats()
   var poisoned = false
@@ -197,39 +219,46 @@ private struct StoreState {
     return encoder
   }()
 
-  init(retention: Int) {
+  init(retention: Int, retentionBytes: Int) {
     self.retention = retention
-    ring.reserveCapacity(Swift.min(retention, 65_536))
+    self.retentionBytes = retentionBytes
+    ring = Array(repeating: nil, count: retention)
   }
 
   // MARK: memory window
 
   mutating func admit(_ events: [Event]) {
     for event in events {
-      if ring.count < retention {
-        ring.append(event)
-      } else {
-        let old = ring[head]
-        identities.remove(old.identity)
-        ring[head] = event
-        head = (head + 1) % retention
-        stats.evicted += 1
-      }
+      if count == retention { evictOldest() }
+      ring[(head + count) % retention] = event
+      count += 1
+      retainedBytes += event.approximateBytes
       identities.insert(event.identity)
+      while retainedBytes > retentionBytes, count > 1 { evictOldest() }
     }
-    stats.retained = ring.count
+    stats.retained = count
+    stats.retainedBytes = retainedBytes
   }
 
-  func recent(_ count: Int) -> [Event] {
-    let n = Swift.min(count, ring.count)
+  private mutating func evictOldest() {
+    guard count > 0, let old = ring[head] else { return }
+    ring[head] = nil
+    head = (head + 1) % retention
+    count -= 1
+    retainedBytes -= old.approximateBytes
+    identities.remove(old.identity)
+    stats.evicted += 1
+  }
+
+  func recent(_ wanted: Int) -> [Event] {
+    let n = Swift.min(wanted, count)
     guard n > 0 else { return [] }
-    if ring.count < retention {
-      return Array(ring[(ring.count - n)...])
-    }
     var out: [Event] = []
     out.reserveCapacity(n)
-    let start = (head + ring.count - n) % ring.count
-    for offset in 0..<n { out.append(ring[(start + offset) % ring.count]) }
+    let start = (head + count - n) % retention
+    for offset in 0..<n {
+      if let event = ring[(start + offset) % retention] { out.append(event) }
+    }
     return out
   }
 
@@ -263,8 +292,8 @@ private struct StoreState {
     for (index, (name, first)) in found.enumerated() {
       let url = directory.appendingPathComponent(name)
       let isLast = index == found.count - 1
-      let events = try readSegment(url, decoder: decoder, repairTail: isLast)
-      segments.append(Segment(url: url, firstSeq: first, count: events.count))
+      let (events, bytes) = try readSegment(url, decoder: decoder, repairTail: isLast)
+      segments.append(Segment(url: url, firstSeq: first, count: events.count, bytes: bytes))
       admit(events)
       stats.loadedFromDisk += events.count
       if let last = events.last { stats.lastSeq = Swift.max(stats.lastSeq, last.seq) }
@@ -276,8 +305,9 @@ private struct StoreState {
     }
   }
 
+  /// The segment's events and its size in bytes after any tail repair.
   private func readSegment(_ url: URL, decoder: JSONDecoder, repairTail: Bool) throws(StoreError)
-    -> [Event]
+    -> ([Event], Int)
   {
     let data: Data
     do { data = try Data(contentsOf: url) } catch {
@@ -313,11 +343,13 @@ private struct StoreState {
         throw StoreError.io("truncate torn tail of \(url.lastPathComponent): errno \(errno)")
       }
     }
-    return events
+    return (events, goodEnd - data.startIndex)
   }
 
   mutating func persist(_ events: [Event], config: EventStore.Configuration) throws(StoreError) {
-    if fd < 0 || (segments.last?.count ?? 0) >= config.segmentEvents {
+    if fd < 0 || (segments.last?.count ?? 0) >= config.segmentEvents
+      || (segments.last?.bytes ?? 0) >= config.segmentBytes
+    {
       try roll(firstSeq: events[0].seq, config: config)
     }
     var bytes = Data()
@@ -352,6 +384,7 @@ private struct StoreState {
       throw StoreError.io("append failed: errno \(failure)")
     }
     segments[segments.count - 1].count += events.count
+    segments[segments.count - 1].bytes += bytes.count
   }
 
   private mutating func roll(firstSeq: UInt64, config: EventStore.Configuration) throws(StoreError)
@@ -361,12 +394,17 @@ private struct StoreState {
     let name = String(format: "segment-%020llu.jsonl", firstSeq)
     let url = directory.appendingPathComponent(name)
     try openForAppend(url)
-    segments.append(Segment(url: url, firstSeq: firstSeq, count: 0))
+    segments.append(Segment(url: url, firstSeq: firstSeq, count: 0, bytes: 0))
     syncDirectory(directory)
-    // Age out whole segments once the newer ones alone cover retention.
-    while segments.count > 1,
-      segments.dropFirst().reduce(0, { $0 + $1.count }) >= retention
-    {
+    // Age out whole segments once the newer ones alone cover retention (in
+    // events or bytes), or past the disk cap.
+    while segments.count > 1 {
+      let newer = segments.dropFirst()
+      let newerEvents = newer.reduce(0) { $0 + $1.count }
+      let newerBytes = newer.reduce(0) { $0 + $1.bytes }
+      let total = newerBytes + segments[0].bytes
+      guard newerEvents >= retention || newerBytes >= retentionBytes || total > config.maxDiskBytes
+      else { break }
       let old = segments.removeFirst()
       unlink(old.url.path)
     }
