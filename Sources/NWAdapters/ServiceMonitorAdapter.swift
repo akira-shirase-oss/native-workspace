@@ -41,12 +41,20 @@ public final class ServiceMonitorAdapter: ServiceAdapter {
     var version: String?
   }
 
+  /// The check that the process on the loopback port is the paired one,
+  /// run before every poll (D-015).
+  public let identityGate: ServerIdentityGate
+
   public init(
     endpoint: URL, token: SecretToken?, transport: any ReadOnlyTransport,
     id: ServiceID = .serviceMonitor, displayName: String = "Service Monitor",
-    limits: Limits = Limits()
+    limits: Limits = Limits(), pin: ServerPin = .trustOnFirstUse,
+    identifier: any ListenerIdentifying = LibprocListenerIdentifier()
   ) throws(AdapterError) {
-    try EndpointPolicy.requireLoopbackForAdminToken(endpoint)
+    let endpoint = try EndpointPolicy.requireLoopbackForAdminToken(endpoint)
+    let port = endpoint.port ?? (endpoint.scheme == "https" ? 443 : 80)
+    self.identityGate = ServerIdentityGate(
+      port: UInt16(clamping: port), pin: pin, identifier: identifier)
     self.endpoint = endpoint
     self.token = token
     self.transport = transport
@@ -122,6 +130,9 @@ public final class ServiceMonitorAdapter: ServiceAdapter {
   }
 
   public func poll(observedAt: Date) async throws(AdapterError) -> PollOutcome {
+    // Nothing — no request, no token — goes to a process that is not the
+    // paired service.
+    try identityGate.verify()
     // Readiness is open (no token sent): 200 ready/degraded, 503 not observing.
     let readyReply = try await get(["readyz"], authorized: false)
     guard readyReply.status == 200 || readyReply.status == 503 else {

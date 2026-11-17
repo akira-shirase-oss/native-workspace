@@ -1,0 +1,83 @@
+{
+  "acknowledged_by_service": {
+    "durable-runner": 10,
+    "service-monitor": 16
+  },
+  "acknowledged_events": 26,
+  "acknowledged_lost": 0,
+  "acknowledged_lost_after_reopen": 0,
+  "backoff": {
+    "base_s": 1,
+    "cap_s": 30,
+    "jitter": 0.2
+  },
+  "commit": "10b376394931ac4918aae3c80ae1394d52006eb5+dirty",
+  "cycles": [
+    {
+      "acknowledged_before_kill": 14,
+      "cycle": 1,
+      "down_s": 20.019999980926514,
+      "live_samples_between_restart_begin_and_marker": 0,
+      "recovered": true,
+      "recovery_after_restart_s": 10.676137924194336,
+      "stale_after_kill_s": {
+        "durable-runner": 0.782357931137085,
+        "service-monitor": 0.8370529413223267
+      }
+    },
+    {
+      "acknowledged_before_kill": 20,
+      "cycle": 2,
+      "down_s": 4.656000137329102,
+      "live_samples_between_restart_begin_and_marker": 0,
+      "recovered": true,
+      "recovery_after_restart_s": 3.0069520473480225,
+      "stale_after_kill_s": {
+        "durable-runner": 0.8756500482559204,
+        "service-monitor": 1.1453250646591187
+      }
+    },
+    {
+      "acknowledged_before_kill": 23,
+      "cycle": 3,
+      "down_s": 4.4029998779296875,
+      "live_samples_between_restart_begin_and_marker": 0,
+      "recovered": true,
+      "recovery_after_restart_s": 2.508897066116333,
+      "stale_after_kill_s": {
+        "durable-runner": 0.48771989345550537,
+        "service-monitor": 0.865683913230896
+      }
+    }
+  ],
+  "drill": "disconnect-restart against real scratch services (SIGKILL + restart)",
+  "duplicate_rows": 0,
+  "duplicates_refused": 0,
+  "durable_runner_main": "1bcaea7e97ca88a3c2f2640be24b29178325203b",
+  "grace_s": 1,
+  "green_while_not_live_samples": 0,
+  "impostor_in_cycle_1_saw": "unknown",
+  "live_while_down_samples": 0,
+  "machine": {
+    "cores": 12,
+    "cpu": "Apple M2 Pro",
+    "load_average_at_end": [
+      27.84716796875,
+      43.50732421875,
+      51.71240234375
+    ],
+    "macos": "27.2.1",
+    "model": "Mac14,10"
+  },
+  "pass": false,
+  "poll_interval_s": 2,
+  "polls": {
+    "durable-runner": 21,
+    "service-monitor": 20
+  },
+  "service_monitor_main": "ceb733907dc9654f893149a9d2d5ae5cc9ceac21",
+  "service_monitor_pinned": "expected(/tmp/nw-svc/monitor-server (cdhash none))",
+  "stored_events": 26,
+  "test_exit_status": 1,
+  "toolchain": "Xcode 27.2 Build version 27B52"
+}

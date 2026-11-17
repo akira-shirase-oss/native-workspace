@@ -10,6 +10,10 @@ import Observation
 /// pairing are N1.
 public struct AppConfiguration: Sendable {
   public var serviceMonitorURL: URL?
+  /// Which program may receive the Service Monitor token (D-015):
+  /// `NW_SMON_EXPECT_EXECUTABLE` (and optionally `NW_SMON_EXPECT_CDHASH`),
+  /// else the first listener seen is pinned for the session.
+  public var serviceMonitorPin: ServerPin = .trustOnFirstUse
   public var durableRunnerURL: URL?
   public var storeDirectory: URL?
   public var pollInterval: TimeInterval = 2
@@ -42,6 +46,10 @@ public struct AppConfiguration: Sendable {
     var config = AppConfiguration()
     config.serviceMonitorURL = env["NW_SMON_URL"].flatMap(URL.init(string:))
     config.durableRunnerURL = env["NW_DURABLE_URL"].flatMap(URL.init(string:))
+    if let executable = env["NW_SMON_EXPECT_EXECUTABLE"], !executable.isEmpty {
+      config.serviceMonitorPin = .expected(
+        ServerIdentity(executable: executable, cdhash: env["NW_SMON_EXPECT_CDHASH"]))
+    }
     if let dir = env["NW_STORE_DIR"] {
       config.storeDirectory = URL(fileURLWithPath: dir, isDirectory: true)
     } else if let support = FileManager.default.urls(
@@ -166,7 +174,8 @@ public final class AppModel {
         limits.checksPerMonitor = config.checksPerMonitor
         adapters.append(
           try ServiceMonitorAdapter(
-            endpoint: url, token: token, transport: transport, limits: limits))
+            endpoint: url, token: token, transport: transport, limits: limits,
+            pin: config.serviceMonitorPin))
       } catch {
         problem("Service Monitor at \(url.absoluteString) refused: \(error)")
       }

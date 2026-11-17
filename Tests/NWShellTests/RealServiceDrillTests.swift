@@ -140,6 +140,12 @@ final class RealServiceDrillTests: XCTestCase {
     let fromDisk = reopened.recent(Int.max).map(\.identity)
     reopened.close()
 
+    // The impostor that held Service Monitor's port in cycle 1 got nothing.
+    let impostor =
+      (try? String(contentsOf: control.appendingPathComponent("impostor"), encoding: .utf8))?
+      .trimmingCharacters(in: .whitespacesAndNewlines) ?? "missing"
+    XCTAssertEqual(impostor, "0 requests", "the impostor was sent something")
+
     XCTAssertEqual(liveWhileDown, 0, "a killed service was labeled live")
     XCTAssertEqual(greenWhileNotLive, 0, "stale data drawn green")
     XCTAssertEqual(Set(stored).count, stored.count, "duplicate rows")
@@ -161,6 +167,8 @@ final class RealServiceDrillTests: XCTestCase {
       "cycles": cycleResults,
       "live_while_down_samples": liveWhileDown,
       "green_while_not_live_samples": greenWhileNotLive,
+      "impostor_in_cycle_1_saw": impostor,
+      "service_monitor_pinned": "\(config.serviceMonitorPin)",
       "acknowledged_events": acknowledged.count,
       "acknowledged_by_service": byService,
       "stored_events": stored.count,

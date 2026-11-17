@@ -132,6 +132,26 @@ starting values; changing one needs a measurement and a new entry.
   non-loopback pairing and no release until Service Monitor offers a
   read-only token through its public API (W-1). Cost: exploration never
   touches a deployed instance.
+  *Amended 2026-11-16 (server identity).* Loopback is not authentication:
+  while Service Monitor is down, any local process can bind its port
+  (≥ 1024 needs no privilege) and would receive `Bearer <admin>` on the
+  next poll. So before every poll the app identifies the process that owns
+  the listening socket (libproc: one listener of this user's processes on
+  that port, else refused) and compares its executable path and code
+  directory hash with the pin: `NW_SMON_EXPECT_EXECUTABLE` (and optionally
+  `NW_SMON_EXPECT_CDHASH`), or, unpinned, the first listener seen this
+  session (trust on first use). On a mismatch nothing is sent — no token,
+  no request — and the service shows stale with the reason. Between full
+  scans (2.9 ms here) a 3 µs check confirms the same pid and start time
+  still hold the port. `localhost` is rewritten to 127.0.0.1, so name
+  resolution never decides where the token goes. Residual risks, accepted
+  for exploration only: the race between the check and the request (the
+  service dies and another process binds within milliseconds); a listener
+  owned by root or another user is invisible and therefore refused; trust
+  on first use pins an impostor that was there first; code running as the
+  same user can still read the token from this process. The real fix is
+  server authentication in Service Monitor (TLS with a certificate pinned
+  at pairing, or a Unix-domain socket checked with `getpeereid`), with W-1.
 - **D-016 — Log text is untrusted and rendered inert.** ANSI and other
   terminal escape sequences (CSI, OSC), C0 and C1 control characters other
   than tab and newline, and the Unicode bidi overrides and isolates

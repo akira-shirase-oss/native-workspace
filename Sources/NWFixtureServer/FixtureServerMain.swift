@@ -38,21 +38,24 @@ struct FixtureServerMain {
     let emulator = ServiceMonitorEmulator(
       .init(token: token, monitors: monitors, slotInterval: slotInterval))
     let server = FixtureHTTPServer(port: port) { emulator.handle($0) }
-    let bound = try await server.start()
-    print("nw-fixture-server listening on 127.0.0.1:\(bound)")
-    fflush(stdout)
+    // Handlers first, so a SIGTERM that arrives during startup still reports.
     for sig in [SIGINT, SIGTERM] {
       signal(sig, SIG_IGN)
       let source = DispatchSource.makeSignalSource(signal: sig, queue: .main)
       source.setEventHandler {
+        let authorized = server.recorded.filter(\.authorized).count
         print(
           "nw-fixture-server stopping: \(server.requestCount) requests, "
-            + "\(emulator.slotsGenerated) slots, non-GET \(emulator.nonGETRequests)")
+            + "\(authorized) with Authorization, \(emulator.slotsGenerated) slots, "
+            + "non-GET \(emulator.nonGETRequests)")
         exit(0)
       }
       source.resume()
       keep.append(source)
     }
+    let bound = try await server.start()
+    print("nw-fixture-server listening on 127.0.0.1:\(bound)")
+    fflush(stdout)
     while true {
       if burstEvery > 0 {
         try await Task.sleep(for: .seconds(burstEvery))

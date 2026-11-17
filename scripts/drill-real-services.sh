@@ -6,7 +6,10 @@
 # ports in 60400-60499 with every byte of data under one mktemp dir in /tmp, and runs
 # RealServiceDrillTests, which asks for each SIGKILL; the script kills both services,
 # waits a random 4-9 s, restarts them on the same data, and says so. The paired service is
-# never a load target here: this is a functional drill. The result goes to
+# never a load target here: this is a functional drill. In cycle 1, while both services
+# are down, an impostor (Python's http.server, a different program) binds Service Monitor's
+# port for a few seconds: the app, pinned to monitor-server (D-015), must send it nothing.
+# The result goes to
 # perf/results/drills/ with machine, toolchain, commits and timings. Everything started is
 # stopped and the temp dir removed on exit, pass or fail.
 #
@@ -50,8 +53,9 @@ work="$(mktemp -d /tmp/nw-real-drill.XXXXXX)"
 smon_pid=""
 durable_pid=""
 test_pid=""
+impostor_pid=""
 cleanup() {
-  for pid in $test_pid $smon_pid $durable_pid; do
+  for pid in $test_pid $smon_pid $durable_pid $impostor_pid; do
     [ -n "$pid" ] && kill "$pid" 2> /dev/null || true
   done
   wait 2> /dev/null || true
@@ -108,7 +112,7 @@ start_smon() {
 }
 start_durable() {
   (cd "$work/durable" && exec env -i PATH="$PATH" HOME="$work/durable" DURABLE_API_KEY="$DURABLE_KEY" \
-    "$durable_bin" --journal "$work/durable/journal" --listen "127.0.0.1:$DURABLE_PORT" \
+    "$durable_bin" --journal "$work/durable/journal" --listen "127.0.0.1:$DURABLE_PORT" $durable_reads \
     --handler "fails=http://127.0.0.1:$DEAD_PORT/step" --step-timeout-ms 500 \
     >> "$work/durable/server.log" 2>&1) &
   durable_pid=$!
@@ -118,7 +122,8 @@ wait_http() { # url
     curl -fsS -o /dev/null --max-time 1 "$1" 2> /dev/null && return 0
     sleep 0.05
   done
-  echo "drill: $1 never answered" >&2
+  echo "drill: $1 never answered; server logs:" >&2
+  tail -n 20 "$work/smon/server.log" "$work/durable/server.log" >&2 2> /dev/null || true
   return 1
 }
 kill_hard() { # pid port
@@ -133,6 +138,19 @@ kill_hard() { # pid port
   exit 1
 }
 
+# Newer Durable Runner builds require a key for reads unless they run with --open-reads,
+# which answers only on loopback (their D-037). The app reads without a credential.
+durable_reads=""
+if "$durable_bin" --help 2> /dev/null | grep -q -- '--open-reads'; then durable_reads="--open-reads"; fi
+
+# Newer Service Monitor builds create a store only with `--init` (their D-015); older
+# ones create it on first start. Ask the binary which kind it is.
+if "$smon_bin" --help 2> /dev/null | grep -q -- '--init'; then
+  (cd "$work/smon" && env -i PATH="$PATH" HOME="$work/smon" \
+    SMON_PROFILE=lab SMON_ADMIN_TOKEN="$SMON_TOKEN" SMON_LISTEN="127.0.0.1:$SMON_PORT" \
+    SMON_DATABASE_URL="sqlite:$work/smon/monitor.db" SMON_STATUS_DIR="$work/smon/status" \
+    "$smon_bin" --init >> "$work/smon/server.log" 2>&1)
+fi
 start_smon
 start_durable
 wait_http "http://127.0.0.1:$SMON_PORT/livez"
@@ -159,6 +177,7 @@ echo "drill: services up (smon pid $smon_pid, durable pid $durable_pid); buildin
 swift build -q --build-tests
 NW_REAL_DRILL_DIR="$work/control" NW_REAL_DRILL_CYCLES="$cycles" \
   NW_SMON_URL="http://127.0.0.1:$SMON_PORT" NW_SMON_TOKEN="$SMON_TOKEN" \
+  NW_SMON_EXPECT_EXECUTABLE="$smon_bin" \
   NW_DURABLE_URL="http://127.0.0.1:$DURABLE_PORT" \
   swift test --skip-build --filter RealServiceDrillTests > "$work/test.log" 2>&1 &
 test_pid=$!
@@ -172,6 +191,34 @@ for cycle in $(seq 1 "$cycles"); do
   kill_hard "$durable_pid" "$DURABLE_PORT"
   now > "$work/control/killed-$cycle.tmp" && mv "$work/control/killed-$cycle.tmp" "$work/control/killed-$cycle"
   echo "drill: cycle $cycle: both services killed (SIGKILL)"
+  if [ "$cycle" -eq 1 ]; then
+    # The impostor: another program (Python's http.server, which logs every request it
+    # gets) on Service Monitor's port. NWListener could not rebind the port this soon after
+    # a SIGKILL (EADDRINUSE); http.server sets SO_REUSEADDR, as the real service does.
+    mkdir -p "$work/impostor-root"
+    (cd "$work/impostor-root" && exec python3 -I -u -m http.server "$SMON_PORT" --bind 127.0.0.1) \
+      > "$work/impostor.log" 2>&1 &
+    impostor_pid=$!
+    for _ in $(seq 1 150); do
+      grep -q 'Serving HTTP' "$work/impostor.log" 2> /dev/null && break
+      sleep 0.1
+    done
+    if grep -q 'Serving HTTP' "$work/impostor.log"; then
+      sleep 5
+      kill -TERM "$impostor_pid" 2> /dev/null || true
+      wait "$impostor_pid" 2> /dev/null || true
+      echo "$(grep -c '"GET \|"POST \|"HEAD ' "$work/impostor.log" || true) requests" \
+        > "$work/control/impostor.tmp"
+    else
+      echo "the impostor did not start" > "$work/control/impostor.tmp"
+      kill -TERM "$impostor_pid" 2> /dev/null || true
+      wait "$impostor_pid" 2> /dev/null || true
+    fi
+    impostor_pid=""
+    mv "$work/control/impostor.tmp" "$work/control/impostor"
+    echo "drill: impostor saw: $(cat "$work/control/impostor")"
+    sed 's/^/drill: impostor log: /' "$work/impostor.log"
+  fi
   sleep "$(perl -e 'printf "%.2f", 4 + rand(5)')"
   # The down window ends when the restart begins: a poll may succeed before
   # the "restarted" marker below is written.

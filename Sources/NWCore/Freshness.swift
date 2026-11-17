@@ -40,6 +40,8 @@ public enum PollFailure: Sendable, Equatable {
   case timeout
   case unauthorized
   case protocolError(String)
+  /// The process on the endpoint is not the paired service; nothing was sent.
+  case untrustedServer(String)
 
   public var summary: String {
     switch self {
@@ -47,6 +49,7 @@ public enum PollFailure: Sendable, Equatable {
     case .timeout: return "timed out"
     case .unauthorized: return "credential refused (401)"
     case .protocolError(let detail): return "unexpected response: \(detail)"
+    case .untrustedServer(let detail): return "untrusted listener: \(detail)"
     }
   }
 }

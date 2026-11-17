@@ -17,6 +17,9 @@ public enum AdapterError: Error, Sendable, Equatable {
   case decoding(String)
   /// The endpoint is not one this build may pair with (D-015).
   case refusedEndpoint(String)
+  /// The process listening on the endpoint is not the paired service, so
+  /// nothing was sent (D-015).
+  case untrustedServer(String)
 
   public var pollFailure: PollFailure {
     switch self {
@@ -26,6 +29,7 @@ public enum AdapterError: Error, Sendable, Equatable {
     case .httpStatus(let status, let code): return .protocolError("HTTP \(status) \(code)")
     case .decoding(let detail): return .protocolError("undecodable: \(detail)")
     case .refusedEndpoint(let detail): return .protocolError(detail)
+    case .untrustedServer(let detail): return .untrustedServer(detail)
     }
   }
 }
@@ -50,7 +54,10 @@ public enum EndpointPolicy {
     return octets.count == 4 && octets.first == "127" && octets.allSatisfy { UInt8($0) != nil }
   }
 
-  public static func requireLoopbackForAdminToken(_ url: URL) throws(AdapterError) {
+  /// Returns the endpoint with a literal loopback address: `localhost` is
+  /// rewritten to 127.0.0.1, so name resolution never decides where the
+  /// token goes.
+  public static func requireLoopbackForAdminToken(_ url: URL) throws(AdapterError) -> URL {
     guard url.scheme == "http" || url.scheme == "https" else {
       throw AdapterError.refusedEndpoint("only http(s) endpoints can be paired")
     }
@@ -58,6 +65,15 @@ public enum EndpointPolicy {
       throw AdapterError.refusedEndpoint(
         "an admin-class token may only be paired with a loopback endpoint (D-015)")
     }
+    guard url.host?.lowercased() == "localhost" else { return url }
+    guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+      throw AdapterError.refusedEndpoint("unusable endpoint")
+    }
+    components.host = "127.0.0.1"
+    guard let literal = components.url else {
+      throw AdapterError.refusedEndpoint("unusable endpoint")
+    }
+    return literal
   }
 }
 
