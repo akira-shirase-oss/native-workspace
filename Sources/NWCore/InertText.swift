@@ -1,16 +1,26 @@
 /// Untrusted service text, made inert for display (D-016).
 ///
 /// Log lines and check details come from services that log what their
-/// targets said; they are untrusted. Terminal escape sequences, C0/C1 control
-/// characters, bidi overrides and isolates, and invisible formatting
-/// characters are replaced by visible `\u{XX}` escapes, so a line can never
-/// display something other than what it contains. A literal backslash is
+/// targets said; they are untrusted. Which scalars are shown as visible
+/// `\u{XX}` escapes is decided by Unicode property, not by a hand list:
+/// controls (Cc), format characters (Cf), line and paragraph separators,
+/// unassigned and private-use code points, noncharacters, and everything
+/// Default_Ignorable, Bidi_Control or Variation_Selector — plus the two
+/// blank-rendering symbols U+2800 and U+FFFC. So a line can never display
+/// something other than what it contains: no terminal escapes, no bidi
+/// reordering, no invisible or zero-width text. Combining marks are kept up
+/// to `maxCombiningMarks` per base character; further ones are escaped, so a
+/// mark flood cannot stack over neighbouring rows. A literal backslash is
 /// doubled, which keeps every escape unambiguous. Nothing here interprets
-/// markup: views show the result with `Text(verbatim:)`.
+/// markup: views show the result with `Text(verbatim:)` or a plain
+/// `NSTextField.stringValue`.
 public enum InertText {
   /// Longest rendering kept, in Unicode scalars. Longer text is cut and the
   /// cut is stated, never hidden.
   public static let defaultMaxScalars = 4_096
+  /// Combining marks kept after one base character (Vietnamese needs two;
+  /// a few more cover the scripts that stack).
+  public static let maxCombiningMarks = 4
 
   /// - Parameter multiline: keep `\n` as a line break (detail views). A list
   ///   row passes `false`, so one event can never draw a second, forged row.
@@ -21,10 +31,20 @@ public enum InertText {
     var out = String.UnicodeScalarView()
     var kept = 0
     var total = 0
+    var marks = 0
     for scalar in raw.unicodeScalars {
       total += 1
       guard kept < maxScalars else { continue }
       kept += 1
+      if isCombiningMark(scalar) {
+        marks += 1
+        if marks > maxCombiningMarks {
+          appendEscape(scalar, to: &out)
+          continue
+        }
+      } else {
+        marks = 0
+      }
       append(scalar, multiline: multiline, to: &out)
     }
     var result = String(out)
@@ -36,19 +56,29 @@ public enum InertText {
 
   /// Whether a scalar is shown as an escape rather than itself.
   public static func mustEscape(_ scalar: Unicode.Scalar, multiline: Bool = false) -> Bool {
-    let v = scalar.value
-    switch v {
+    switch scalar.value {
     case 0x09: return false  // tab
     case 0x0A: return !multiline  // newline
-    case 0x00...0x1F, 0x7F: return true  // C0 controls (ESC included), DEL
-    case 0x80...0x9F: return true  // C1 controls (U+009B is a one-byte CSI)
-    case 0x061C, 0x200E, 0x200F: return true  // bidi marks (ALM, LRM, RLM)
-    case 0x202A...0x202E: return true  // bidi embeddings and overrides
-    case 0x2066...0x2069: return true  // bidi isolates
-    case 0x200B...0x200D, 0x2060...0x2064, 0xFEFF: return true  // zero-width / invisible
-    case 0x2028, 0x2029: return true  // line and paragraph separators
-    case 0xFFF9...0xFFFB: return true  // interlinear annotation
-    case 0xE0000...0xE007F: return true  // tag characters (invisible text)
+    case 0x20...0x7E: return false  // printable ASCII
+    case 0x2800, 0xFFFC: return true  // Braille blank, object replacement: render blank
+    default: break
+    }
+    let properties = scalar.properties
+    switch properties.generalCategory {
+    case .control, .format, .lineSeparator, .paragraphSeparator, .surrogate, .unassigned,
+      .privateUse:
+      return true
+    default:
+      break
+    }
+    return properties.isDefaultIgnorableCodePoint || properties.isBidiControl
+      || properties.isVariationSelector || properties.isNoncharacterCodePoint
+  }
+
+  static func isCombiningMark(_ scalar: Unicode.Scalar) -> Bool {
+    guard scalar.value >= 0x0300 else { return false }
+    switch scalar.properties.generalCategory {
+    case .nonspacingMark, .spacingMark, .enclosingMark: return true
     default: return false
     }
   }
@@ -65,6 +95,11 @@ public enum InertText {
       out.append(scalar)
       return
     }
+    appendEscape(scalar, to: &out)
+  }
+
+  private static func appendEscape(_ scalar: Unicode.Scalar, to out: inout String.UnicodeScalarView)
+  {
     let hex = String(scalar.value, radix: 16, uppercase: true)
     let padded = hex.count < 2 ? "0" + hex : hex
     out.append(contentsOf: "\\u{\(padded)}".unicodeScalars)

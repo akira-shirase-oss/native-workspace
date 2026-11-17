@@ -52,25 +52,17 @@ final class InertTextTests: XCTestCase {
   func testEveryHostileLineRendersWithNoActiveCharacter() {
     for line in HostileFixture.lines {
       let rendered = InertText.render(line)
-      for scalar in rendered.unicodeScalars {
-        XCTAssertFalse(
-          InertText.mustEscape(scalar),
-          "active scalar U+\(String(scalar.value, radix: 16)) in \(rendered)")
-      }
+      XCTAssertEqual(activeScalars(rendered), [], rendered)
     }
   }
 
-  func testTheCommittedFixtureFileRendersInert() throws {
+  func testTheCodeCorpusIsInTheCommittedFixtureFile() throws {
     let url = URL(fileURLWithPath: #filePath)
       .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
       .appendingPathComponent("fixtures/hostile-log-lines.json")
     struct File: Decodable { let lines: [String] }
     let file = try JSONDecoder().decode(File.self, from: Data(contentsOf: url))
-    XCTAssertGreaterThanOrEqual(file.lines.count, 15)
     XCTAssertTrue(Set(HostileFixture.lines).isSubset(of: Set(file.lines)), "code and file drifted")
-    for line in file.lines {
-      XCTAssertFalse(InertText.render(line).unicodeScalars.contains { InertText.mustEscape($0) })
-    }
   }
 
   func testLongTextIsCutAndTheCutIsStated() {

@@ -76,6 +76,7 @@ struct EventTable: NSViewRepresentable {
           field.maximumNumberOfLines = 1
           field.allowsEditingTextAttributes = false
           field.isSelectable = true
+          field.clipsToBounds = true  // nothing a cell holds can draw over its neighbours
           return field
         }()
       switch id.rawValue {
