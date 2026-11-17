@@ -186,11 +186,11 @@ starting values; changing one needs a measurement and a new entry.
   false positives hide some harmless text until revealed.
   *N0 exception (2026-11-17):* the redactor does not exist yet, so N0
   persists service text as the service sent it — cut to 8 KiB per event
-  (F7), in the private, single-instance store directory (0700, D-028), and
-  rendered inert only at display. Secret-shaped text in a check detail is
-  therefore on disk in N0 builds. Exploration pairs only with loopback
-  scratch instances (D-015), and the redactor lands at N2, before any
-  export or assistance.
+  (F7), in the private, single-instance store directory (0700 with an
+  exclusive lock, since `6683191`), and rendered inert only at display.
+  Secret-shaped text in a check detail is therefore on disk in N0 builds.
+  Exploration pairs only with loopback scratch instances (D-015), and the
+  redactor lands at N2, before any export or assistance.
 - **D-018 — Platform hardening.** Keychain items use
   `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` (no sync to other
   devices); the app ships with the App Sandbox (outgoing network entitlement
