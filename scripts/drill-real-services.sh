@@ -141,11 +141,13 @@ kill_hard() { # pid port
 # Newer Durable Runner builds require a key for reads unless they run with --open-reads,
 # which answers only on loopback (their D-037). The app reads without a credential.
 durable_reads=""
-if "$durable_bin" --help 2> /dev/null | grep -q -- '--open-reads'; then durable_reads="--open-reads"; fi
+durable_help="$("$durable_bin" --help 2> /dev/null || true)"
+if grep -q -- '--open-reads' <<< "$durable_help"; then durable_reads="--open-reads"; fi
 
 # Newer Service Monitor builds create a store only with `--init` (their D-015); older
 # ones create it on first start. Ask the binary which kind it is.
-if "$smon_bin" --help 2> /dev/null | grep -q -- '--init'; then
+smon_help="$("$smon_bin" --help 2> /dev/null || true)"
+if grep -q -- '--init' <<< "$smon_help"; then
   (cd "$work/smon" && env -i PATH="$PATH" HOME="$work/smon" \
     SMON_PROFILE=lab SMON_ADMIN_TOKEN="$SMON_TOKEN" SMON_LISTEN="127.0.0.1:$SMON_PORT" \
     SMON_DATABASE_URL="sqlite:$work/smon/monitor.db" SMON_STATUS_DIR="$work/smon/status" \

@@ -58,7 +58,9 @@ expect_violation() {
   printf '%s\n' "$content" >> "$work/$file"
   local out status=0
   out="$("$check" "$work" 2>&1)" || status=$?
-  if [ "$status" -ne 0 ] && echo "$out" | grep -q "\[$rule\] $file"; then
+  # A here-string, not a pipe: under pipefail, grep -q closing the pipe early
+  # could fail the writer and make the check flaky.
+  if [ "$status" -ne 0 ] && grep -q -- "\[$rule\] $file" <<< "$out"; then
     ok "$name -> [$rule]"
   else
     bad "$name: expected [$rule] in $file, exit $status: $out"

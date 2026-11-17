@@ -23,7 +23,8 @@ if [ "${1:-}" = "--binaries" ]; then
   for bin in "$dir"/NativeWorkspace "$dir"/nw-replay "$dir"/nw-fixture-server; do
     [ -f "$bin" ] || continue
     found=$((found + 1))
-    if otool -L "$bin" | grep -Eiq '(WebKit|SafariServices|JavaScriptCore)\.framework'; then
+    links="$(otool -L "$bin")"
+    if grep -Eiq '(WebKit|SafariServices|JavaScriptCore)\.framework' <<< "$links"; then
       echo "arch-check: [no-webkit] $(basename "$bin") links a web framework:"
       otool -L "$bin" | grep -Ei '(WebKit|SafariServices|JavaScriptCore)\.framework' || true
       bad=1
@@ -78,8 +79,11 @@ check_joined() {
   local rule="$1" file="$2" pattern="$3"
   local joined
   joined="$(strip_comments "$file" | tr '\n' ' ')"
-  if printf '%s' "$joined" | grep -qE -- "$pattern"; then
-    if ! strip_comments "$file" | grep -qE -- "$pattern"; then
+  # Here-strings, not pipes into grep -q (which can fail the writer under pipefail).
+  if grep -qE -- "$pattern" <<< "$joined"; then
+    local stripped
+    stripped="$(strip_comments "$file")"
+    if ! grep -qE -- "$pattern" <<< "$stripped"; then
       report "$rule" "$file" 0 "(split over lines) $(printf '%s' "$joined" | grep -oE -- "$pattern" | head -1)"
     fi
   fi
@@ -165,7 +169,7 @@ for f in $files; do
         while IFS= read -r hit; do
           [ -z "$hit" ] && continue
           text="${hit#*:}"
-          if ! echo "$text" | grep -Eq 'httpMethod[[:space:]]*=[[:space:]]*"GET"[[:space:]]*$'; then
+          if ! grep -Eq 'httpMethod[[:space:]]*=[[:space:]]*"GET"[[:space:]]*$' <<< "$text"; then
             report get-only "$f" "${hit%%:*}" "$text"
           fi
         done <<EOF
