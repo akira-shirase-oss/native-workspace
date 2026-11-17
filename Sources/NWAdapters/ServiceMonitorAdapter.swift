@@ -54,7 +54,9 @@ public final class ServiceMonitorAdapter: ServiceAdapter {
     let endpoint = try EndpointPolicy.requireLoopbackForAdminToken(endpoint)
     let port = endpoint.port ?? (endpoint.scheme == "https" ? 443 : 80)
     self.identityGate = ServerIdentityGate(
-      port: UInt16(clamping: port), pin: pin, identifier: identifier)
+      port: UInt16(clamping: port),
+      target: endpoint.host.flatMap(ListenAddress.init(literal:)) ?? .v4(0x7F00_0001), pin: pin,
+      identifier: identifier)
     self.endpoint = endpoint
     self.token = token
     self.transport = transport
@@ -117,6 +119,9 @@ public final class ServiceMonitorAdapter: ServiceAdapter {
   private func get(_ path: [String], query: [URLQueryItem] = [], authorized: Bool)
     async throws(AdapterError) -> HTTPReply
   {
+    // Immediately before every request: nothing — no request, no token —
+    // goes to a process that is not the paired service (D-015).
+    try identityGate.verify()
     let request = ReadOnlyRequest(
       url: try Wire.url(endpoint, path, query: query), token: authorized ? token : nil)
     let reply: HTTPReply
@@ -130,9 +135,6 @@ public final class ServiceMonitorAdapter: ServiceAdapter {
   }
 
   public func poll(observedAt: Date) async throws(AdapterError) -> PollOutcome {
-    // Nothing — no request, no token — goes to a process that is not the
-    // paired service.
-    try identityGate.verify()
     // Readiness is open (no token sent): 200 ready/degraded, 503 not observing.
     let readyReply = try await get(["readyz"], authorized: false)
     guard readyReply.status == 200 || readyReply.status == 503 else {

@@ -19,54 +19,107 @@ public struct ServerIdentity: Sendable, Equatable, CustomStringConvertible {
   }
 }
 
-/// Finds the process that owns a listening TCP socket on a loopback port.
-public protocol ListenerIdentifying: Sendable {
-  /// `nil` when no listener is visible, or more than one process listens.
-  func identify(port: UInt16) -> (pid: pid_t, identity: ServerIdentity)?
-  /// Whether `pid` (started at `startTime`) still listens on `port`: the
-  /// cheap check between full scans.
-  func stillListening(pid: pid_t, startTime: UInt64, port: UInt16) -> Bool
-  func startTime(of pid: pid_t) -> UInt64?
+/// The local address a listening socket is bound to.
+public enum ListenAddress: Sendable, Hashable, CustomStringConvertible {
+  case v4(UInt32)  // host byte order
+  case v6([UInt8])  // 16 bytes
+
+  public static let anyV4 = ListenAddress.v4(0)
+  public static let anyV6 = ListenAddress.v6([UInt8](repeating: 0, count: 16))
+
+  /// The literal an endpoint host names, or `nil` if it is not a literal.
+  public init?(literal host: String) {
+    let bare =
+      host.hasPrefix("[") && host.hasSuffix("]") ? String(host.dropFirst().dropLast()) : host
+    var v4 = in_addr()
+    if inet_pton(AF_INET, bare, &v4) == 1 {
+      self = .v4(UInt32(bigEndian: v4.s_addr))
+      return
+    }
+    var v6 = in6_addr()
+    if inet_pton(AF_INET6, bare, &v6) == 1 {
+      self = .v6(withUnsafeBytes(of: &v6) { Array($0) })
+      return
+    }
+    return nil
+  }
+
+  /// IPv4-mapped IPv6 addresses are the IPv4 address they map.
+  var normalized: ListenAddress {
+    if case .v6(let bytes) = self, bytes.count == 16, bytes[0..<10].allSatisfy({ $0 == 0 }),
+      bytes[10] == 0xFF, bytes[11] == 0xFF
+    {
+      return .v4(bytes[12...15].reduce(UInt32(0)) { $0 << 8 | UInt32($1) })
+    }
+    return self
+  }
+
+  public var description: String {
+    switch self {
+    case .v4(let value):
+      return "\(value >> 24).\((value >> 16) & 0xFF).\((value >> 8) & 0xFF).\(value & 0xFF)"
+    case .v6(let bytes):
+      var address = in6_addr()
+      withUnsafeMutableBytes(of: &address) { $0.copyBytes(from: bytes.prefix(16)) }
+      var buffer = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
+      inet_ntop(AF_INET6, &address, &buffer, socklen_t(buffer.count))
+      return String(
+        decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+    }
+  }
 }
 
-/// The kernel's own answer (libproc): every process the user may inspect,
-/// its socket descriptors, the TCP listeners among them. A listener owned
-/// by another user (root included) is invisible, so it is refused — the
-/// gate fails closed.
-public struct LibprocListenerIdentifier: ListenerIdentifying {
+/// One process's listening TCP socket on the port in question.
+public struct ListenerSocket: Sendable, Equatable {
+  public var pid: pid_t
+  public var address: ListenAddress
+
+  public init(pid: pid_t, address: ListenAddress) {
+    self.pid = pid
+    self.address = address
+  }
+}
+
+/// Finds who listens on a loopback port, and who a process is.
+public protocol ListenerIdentifying: Sendable {
+  /// Every listening TCP socket on `port` among the processes this user may
+  /// inspect (other users' sockets are invisible to libproc).
+  func listeners(port: UInt16) -> [ListenerSocket]
+  func identity(of pid: pid_t) -> ServerIdentity?
+}
+
+/// The kernel's own answer (libproc), over this user's processes. Identities
+/// are cached by pid and start time, so a reused pid is identified afresh.
+public final class LibprocListenerIdentifier: ListenerIdentifying {
+  private let identities = Mutex<[String: ServerIdentity]>([:])
+
   public init() {}
 
-  public func identify(port: UInt16) -> (pid: pid_t, identity: ServerIdentity)? {
-    let count = proc_listallpids(nil, 0)
-    guard count > 0 else { return nil }
-    var pids = [pid_t](repeating: 0, count: Int(count) + 64)
-    let got = proc_listallpids(&pids, Int32(pids.count * MemoryLayout<pid_t>.size))
-    guard got > 0 else { return nil }
-    let owners = pids.prefix(Int(got)).filter { $0 > 0 && listens(pid: $0, port: port) }
-    guard owners.count == 1, let pid = owners.first, let identity = identity(of: pid) else {
-      return nil
+  public func listeners(port: UInt16) -> [ListenerSocket] {
+    let uid = getuid()
+    let count = proc_listpids(UInt32(PROC_UID_ONLY), uid, nil, 0)
+    guard count > 0 else { return [] }
+    var pids = [pid_t](repeating: 0, count: Int(count) / MemoryLayout<pid_t>.size + 64)
+    let bytes = proc_listpids(
+      UInt32(PROC_UID_ONLY), uid, &pids, Int32(pids.count * MemoryLayout<pid_t>.size))
+    guard bytes > 0 else { return [] }
+    var found: [ListenerSocket] = []
+    for pid in pids.prefix(Int(bytes) / MemoryLayout<pid_t>.size) where pid > 0 {
+      for address in listening(pid: pid, port: port) {
+        found.append(ListenerSocket(pid: pid, address: address))
+      }
     }
-    return (pid, identity)
+    return found
   }
 
-  public func stillListening(pid: pid_t, startTime: UInt64, port: UInt16) -> Bool {
-    self.startTime(of: pid) == startTime && listens(pid: pid, port: port)
-  }
-
-  public func startTime(of pid: pid_t) -> UInt64? {
-    var info = proc_bsdinfo()
-    let size = Int32(MemoryLayout<proc_bsdinfo>.size)
-    guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { return nil }
-    return info.pbi_start_tvsec &* 1_000_000 &+ info.pbi_start_tvusec
-  }
-
-  func listens(pid: pid_t, port: UInt16) -> Bool {
+  func listening(pid: pid_t, port: UInt16) -> [ListenAddress] {
     let stride = MemoryLayout<proc_fdinfo>.stride
     let bytes = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, nil, 0)
-    guard bytes > 0 else { return false }
+    guard bytes > 0 else { return [] }
     var fds = [proc_fdinfo](repeating: proc_fdinfo(), count: Int(bytes) / stride + 16)
     let got = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, &fds, Int32(fds.count * stride))
-    guard got > 0 else { return false }
+    guard got > 0 else { return [] }
+    var addresses: [ListenAddress] = []
     for fd in fds.prefix(Int(got) / stride) where fd.proc_fdtype == PROX_FDTYPE_SOCKET {
       var info = socket_fdinfo()
       let size = Int32(MemoryLayout<socket_fdinfo>.size)
@@ -74,20 +127,35 @@ public struct LibprocListenerIdentifier: ListenerIdentifying {
         info.psi.soi_kind == SOCKINFO_TCP
       else { continue }
       let tcp = info.psi.soi_proto.pri_tcp
-      guard tcp.tcpsi_state == TSI_S_LISTEN else { continue }
-      if UInt16(bigEndian: UInt16(truncatingIfNeeded: tcp.tcpsi_ini.insi_lport)) == port {
-        return true
+      guard tcp.tcpsi_state == TSI_S_LISTEN,
+        UInt16(bigEndian: UInt16(truncatingIfNeeded: tcp.tcpsi_ini.insi_lport)) == port
+      else { continue }
+      var local = tcp.tcpsi_ini.insi_laddr
+      if tcp.tcpsi_ini.insi_vflag & UInt8(INI_IPV4) != 0 {
+        addresses.append(.v4(UInt32(bigEndian: local.ina_46.i46a_addr4.s_addr)))
+      } else {
+        addresses.append(.v6(withUnsafeBytes(of: &local.ina_6) { Array($0) }))
       }
     }
-    return false
+    return addresses
   }
 
-  func identity(of pid: pid_t) -> ServerIdentity? {
+  public func identity(of pid: pid_t) -> ServerIdentity? {
+    var info = proc_bsdinfo()
+    let size = Int32(MemoryLayout<proc_bsdinfo>.size)
+    guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { return nil }
+    let key = "\(pid)@\(info.pbi_start_tvsec).\(info.pbi_start_tvusec)"
+    if let known = identities.withLock({ $0[key] }) { return known }
     var path = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
     guard proc_pidpath(pid, &path, UInt32(path.count)) > 0 else { return nil }
     let executable = String(
       decoding: path.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
-    return ServerIdentity(executable: executable, cdhash: Self.cdhash(of: pid))
+    let identity = ServerIdentity(executable: executable, cdhash: Self.cdhash(of: pid))
+    identities.withLock { cache in
+      if cache.count > 64 { cache.removeAll() }
+      cache[key] = identity
+    }
+    return identity
   }
 
   static func cdhash(of pid: pid_t) -> String? {
@@ -119,24 +187,27 @@ public enum ServerPin: Sendable, Equatable {
   case expected(ServerIdentity)
 }
 
-/// The check before a token leaves the app: the process listening on the
-/// endpoint's loopback port must be the paired one. A full scan finds the
-/// listener; between scans, the cheap check confirms the same process
-/// (pid and start time) still holds the port. The residual race — the
-/// service dies and another process binds between the check and the
-/// request — is milliseconds wide; D-015 records it.
+/// The check before every request: the process that would accept a
+/// connection to the endpoint's exact address and port must be the paired
+/// program. That is the owner of a socket bound to that very address if
+/// one exists (the kernel prefers it), otherwise of a wildcard socket
+/// (0.0.0.0, or :: which also takes IPv4); more than one process for the
+/// address, or none, is refused. It runs immediately before each request
+/// (D-015), so the window between check and connection is the time
+/// URLSession takes to open it — and a kept-alive connection stays with the
+/// process that accepted it.
 public final class ServerIdentityGate: Sendable {
   public let port: UInt16
+  public let target: ListenAddress
   private let identifier: any ListenerIdentifying
-  private let state: Mutex<State>
+  private let state: Mutex<ServerPin>
 
-  private struct State {
-    var pin: ServerPin
-    var verified: (pid: pid_t, start: UInt64)?
-  }
-
-  public init(port: UInt16, pin: ServerPin, identifier: any ListenerIdentifying) {
+  public init(
+    port: UInt16, target: ListenAddress = .v4(0x7F00_0001), pin: ServerPin,
+    identifier: any ListenerIdentifying
+  ) {
     self.port = port
+    self.target = target.normalized
     self.identifier = identifier
     // The kernel reports the real path (/tmp is /private/tmp), so the pinned
     // path is resolved the same way — with realpath(3), not Foundation's
@@ -147,7 +218,7 @@ public final class ServerIdentityGate: Sendable {
         ServerIdentity(
           executable: Self.realPath(identity.executable), cdhash: identity.cdhash?.lowercased()))
     }
-    self.state = Mutex(State(pin: canonical))
+    self.state = Mutex(canonical)
   }
 
   static func realPath(_ path: String) -> String {
@@ -156,42 +227,55 @@ public final class ServerIdentityGate: Sendable {
     return String(cString: resolved)
   }
 
+  /// The process a connection to `target` reaches, or `nil` when there is
+  /// none or more than one.
+  public static func owner(of target: ListenAddress, among listeners: [ListenerSocket]) -> pid_t? {
+    let target = target.normalized
+    let exact = listeners.filter { $0.address.normalized == target }
+    let candidates: [ListenerSocket]
+    if !exact.isEmpty {
+      candidates = exact
+    } else {
+      candidates = listeners.filter { listener in
+        switch (listener.address.normalized, target) {
+        case (.anyV6, _): return true  // :: takes IPv4 too unless IPV6_V6ONLY: assume it does
+        case (.anyV4, .v4): return true
+        default: return false
+        }
+      }
+    }
+    let pids = Set(candidates.map(\.pid))
+    return pids.count == 1 ? pids.first : nil
+  }
+
   /// The identity pinned so far (after trust-on-first-use, the one seen).
   public var pinned: ServerIdentity? {
-    state.withLock { s in
-      if case .expected(let identity) = s.pin { return identity }
+    state.withLock { pin in
+      if case .expected(let identity) = pin { return identity }
       return nil
     }
   }
 
   public func verify() throws(AdapterError) {
-    let cached = state.withLock { $0.verified }
-    if let cached,
-      identifier.stillListening(pid: cached.pid, startTime: cached.start, port: port)
-    {
-      return
-    }
-    guard let found = identifier.identify(port: port) else {
-      state.withLock { $0.verified = nil }
+    let listeners = identifier.listeners(port: port)
+    guard let pid = Self.owner(of: target, among: listeners),
+      let found = identifier.identity(of: pid)
+    else {
       throw AdapterError.untrustedServer(
-        "no single listener of this user on 127.0.0.1:\(port) to verify; not sending the token")
+        "no single listener of this user for \(target):\(port) to verify; not sending")
     }
-    let start = identifier.startTime(of: found.pid) ?? 0
-    try state.withLock { s throws(AdapterError) in
-      switch s.pin {
+    try state.withLock { pin throws(AdapterError) in
+      switch pin {
       case .trustOnFirstUse:
-        s.pin = .expected(found.identity)
+        pin = .expected(found)
       case .expected(let expected):
-        let sameProgram = expected.executable == Self.realPath(found.identity.executable)
-        let sameCode = expected.cdhash == nil || expected.cdhash == found.identity.cdhash
+        let sameProgram = expected.executable == Self.realPath(found.executable)
+        let sameCode = expected.cdhash == nil || expected.cdhash == found.cdhash
         guard sameProgram, sameCode else {
-          s.verified = nil
           throw AdapterError.untrustedServer(
-            "127.0.0.1:\(port) is served by \(found.identity), not the paired "
-              + "\(expected); not sending the token")
+            "\(target):\(port) is served by \(found), not the paired \(expected); not sending")
         }
       }
-      s.verified = (found.pid, start)
     }
   }
 }
