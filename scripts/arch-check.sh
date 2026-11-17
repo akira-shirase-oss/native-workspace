@@ -72,6 +72,19 @@ report() { # rule file line text
   violations=$((violations + 1))
 }
 
+# check_joined RULE FILE ERE: the rule against the comment-stripped file joined into one
+# line, so a call split over lines cannot hide (reported at line 0).
+check_joined() {
+  local rule="$1" file="$2" pattern="$3"
+  local joined
+  joined="$(strip_comments "$file" | tr '\n' ' ')"
+  if printf '%s' "$joined" | grep -qE -- "$pattern"; then
+    if ! strip_comments "$file" | grep -qE -- "$pattern"; then
+      report "$rule" "$file" 0 "(split over lines) $(printf '%s' "$joined" | grep -oE -- "$pattern" | head -1)"
+    fi
+  fi
+}
+
 # check RULE FILE ERE [-i]
 check() {
   local rule="$1" file="$2" pattern="$3" flags="${4:-}"
@@ -100,11 +113,22 @@ for f in $files; do
   # no-process — every target, tests included (drills spawn from scripts, not Swift).
   check no-process "$f" '(^|[^A-Za-z0-9_])(Process|NSTask|posix_spawn|posix_spawnp|NSAppleScript|NSUserScriptTask|NSUserUnixTask|NSUserAppleScriptTask|NSUserAutomatorTask|OSAScript|NSWorkspace|popen|fork|vfork|execv|execve|execvp|execvP|execl|execlp|execle)([^A-Za-z0-9_]|$)'
   check no-process "$f" '(^|[^A-Za-z0-9_.])system[[:space:]]*\('
+  # Dynamic lookup could reach a spawning API by name.
+  check no-process "$f" '(^|[^A-Za-z0-9_])(dlopen|dlsym|NSClassFromString|NSSelectorFromString|objc_getClass|objc_lookUpClass|objc_getRequiredClass)([^A-Za-z0-9_]|$)'
 
   # inert-text — untrusted text is never interpreted as markup (D-016).
   check inert-text "$f" 'AttributedString[[:space:]]*\([[:space:]]*markdown'
   check inert-text "$f" '(DocumentType|documentType)[^A-Za-z]*\.?(html|rtf|rtfd)([^A-Za-z]|$)'
   check inert-text "$f" 'NSAttributedString[[:space:]]*\([[:space:]]*(html|rtf)'
+  # SwiftUI reads a Text string literal (with any interpolation) as a
+  # LocalizedStringKey: Markdown and links. Anything not a fixed literal must
+  # use Text(verbatim:).
+  check inert-text "$f" 'Text[[:space:]]*\([[:space:]]*"[^"]*\\\('
+  check inert-text "$f" '(^|[^A-Za-z0-9_])LocalizedStringKey[[:space:]]*\('
+  # Calls split over lines: the same rules on the file joined into one line.
+  check_joined inert-text "$f" 'AttributedString[[:space:]]*\([[:space:]]*markdown'
+  check_joined inert-text "$f" 'NSAttributedString[[:space:]]*\([[:space:]]*(html|rtf)'
+  check_joined inert-text "$f" 'Text[[:space:]]*\([[:space:]]*"[^"]*\\\('
 
   case "$f" in
     Sources/NWCore/* | Sources/NWCredentials/* | Sources/NWAdapters/* | Sources/NWFixtures/*)
@@ -121,6 +145,11 @@ for f in $files; do
       if [ "$f" != "$transport" ]; then
         # Only the bounded transport may touch URLSession or build a URLRequest.
         check get-only "$f" '(^|[^A-Za-z0-9_])(URLSession|URLRequest|NSMutableURLRequest|CFHTTPMessage|NWConnection|CFStream|NSStream|URLSessionWebSocketTask)([^A-Za-z0-9_]|$)'
+      fi
+      if [ "$f" != "Sources/NWCore/EventStore.swift" ]; then
+        # Reading by URL can fetch over the network; only the store reads files
+        # (its own segments).
+        check get-only "$f" '(^|[^A-Za-z0-9_])(Data|NSData|String|NSString|NSDictionary|NSArray)[[:space:]]*\([[:space:]]*contentsOf'
       fi
       ;;
   esac
@@ -152,14 +181,47 @@ EOF
   esac
 done
 
-# The app's targets must not depend on the fixtures (a server that is not GET-only).
+# The app's targets must not reach the fixtures (a server that is not GET-only), directly
+# or through another target, however the declarations are laid out.
 if [ -f Package.swift ]; then
-  for target in NWShell NWApp NWCore NWAdapters NWCredentials; do
-    line="$(strip_comments Package.swift | grep -nE "name: \"$target\"" | grep -vE 'testTarget' || true)"
-    if echo "$line" | grep -q 'NWFixtures'; then
-      report get-only Package.swift "${line%%:*}" "$target depends on NWFixtures"
-    fi
-  done
+  reach="$(strip_comments Package.swift | python3 -I -c '
+import re, sys
+text = sys.stdin.read()
+targets = {}
+for m in re.finditer(r"\.(target|executableTarget|testTarget)\s*\(", text):
+    depth, i = 1, m.end()
+    while i < len(text) and depth:
+        depth += {"(": 1, ")": -1}.get(text[i], 0)
+        i += 1
+    body = text[m.end():i - 1]
+    name = re.search(r"name\s*:\s*\"([^\"]+)\"", body)
+    if not name:
+        continue
+    deps = re.search(r"dependencies\s*:\s*\[(.*?)\]", body, re.S)
+    found = re.findall(r"\"([^\"]+)\"", deps.group(1)) if deps else []
+    targets[name.group(1)] = found
+for root in ["NWApp", "NWShell", "NWCore", "NWAdapters", "NWCredentials"]:
+    if root not in targets:
+        continue
+    seen, stack, path = set(), [(root, [root])], None
+    while stack:
+        name, via = stack.pop()
+        if name == "NWFixtures":
+            path = via
+            break
+        if name in seen:
+            continue
+        seen.add(name)
+        for dep in targets.get(name, []):
+            stack.append((dep, via + [dep]))
+    if path:
+        print(root + " reaches NWFixtures: " + " -> ".join(path))
+')"
+  while IFS= read -r line; do
+    [ -n "$line" ] && report get-only Package.swift 0 "$line"
+  done <<REACH
+$reach
+REACH
 fi
 
 if [ ! -f "$transport" ]; then

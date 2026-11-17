@@ -98,6 +98,22 @@ expect_violation "app depends on the fixtures" get-only Package.swift '  .target
 expect_violation "markdown interpretation" inert-text Sources/NWShell/Text.swift 'let a = try AttributedString(markdown: line)'
 expect_violation "HTML document" inert-text Sources/NWShell/Text.swift 'let o = [NSAttributedString.DocumentReadingOptionKey.documentType: NSAttributedString.DocumentType.html]'
 
+# Bypasses an earlier version missed (each must fail now).
+expect_violation "network read outside the transport" get-only Sources/NWShell/Net.swift 'let d = try Data(contentsOf: URL(string: "http://127.0.0.1:1/api/monitors")!)'
+expect_violation "String(contentsOf:) outside the store" get-only Sources/NWAdapters/Other.swift 'let s = try String(contentsOf: url, encoding: .utf8)'
+expect_violation "interpolated Text literal" inert-text Sources/NWShell/Text.swift 'var body: some View { Text("Service says: \(untrusted)") }'
+expect_violation "LocalizedStringKey from a string" inert-text Sources/NWShell/Text.swift 'let key = LocalizedStringKey(line)'
+expect_violation "markdown call split over lines" inert-text Sources/NWShell/Text.swift 'let a = try AttributedString(
+    markdown: line)'
+expect_violation "dlsym spawn" no-process Sources/NWCore/Spawn.swift 'let f = dlsym(handle, "posix_" + "spawn")'
+expect_violation "class looked up by name" no-process Sources/NWShell/Spawn.swift 'let t = NSClassFromString("NS" + "Task")'
+expect_violation "app depends on the fixtures over several lines" get-only Package.swift '  .executableTarget(
+    name: "NWApp",
+    dependencies: ["NWShell", "NWFixtures"]
+  ),'
+expect_violation "app reaches the fixtures through another target" get-only Package.swift '  .target(name: "NWCore", dependencies: ["NWHelpers"]),
+  .target(name: "NWHelpers", dependencies: ["NWFixtures"]),'
+
 # A missing transport is itself a violation.
 mv "$work/Sources/NWAdapters/ReadOnlyHTTP.swift" "$work/moved.swift"
 if "$check" "$work" > /dev/null 2>&1; then bad "missing transport fails"; else ok "missing transport fails"; fi
