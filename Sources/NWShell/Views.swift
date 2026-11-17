@@ -15,12 +15,23 @@ public struct RootView: View {
   public var body: some View {
     NavigationSplitView {
       List(model.services, selection: $selection) { service in
-        ServiceRow(service: service).tag(service.id)
+        ServiceRow(service: service, recording: model.recording).tag(service.id)
       }
       .navigationSplitViewColumnWidth(min: 220, ideal: 260)
       .navigationTitle("Services")
     } detail: {
       VStack(alignment: .leading, spacing: 0) {
+        if case .failed(let since, let reason, let unrecorded) = model.recording {
+          Label {
+            Text(
+              verbatim:
+                "Not recording since \(Freshness.clock(since)): \(reason.value). "
+                + "\(unrecorded) events not recorded, shown as gap rows; retrying.")
+          } icon: {
+            Image(systemName: "exclamationmark.octagon.fill").foregroundStyle(.red)
+          }
+          .padding(8)
+        }
         ForEach(model.problems, id: \.self) { problem in
           Label {
             Text(verbatim: problem.value)
@@ -32,7 +43,7 @@ public struct RootView: View {
         if let service = model.services.first(where: { $0.id == selection })
           ?? model.services.first
         {
-          ServiceStatusView(service: service)
+          ServiceStatusView(service: service, recording: model.recording)
           Divider()
         }
         switch model.configuration.eventList {
@@ -49,16 +60,19 @@ public struct RootView: View {
 /// Re-evaluates freshness twice a second.
 struct FreshnessBadge: View {
   let service: ServiceStatusModel
+  let recording: RecordingHealth
 
   var body: some View {
     TimelineView(.periodic(from: .now, by: 0.5)) { context in
       let freshness = service.freshness(now: context.date)
+      let badge = StatusBadge.display(freshness, recording: recording)
       Label {
-        Text(verbatim: freshness.label)
+        Text(verbatim: badge.label)
       } icon: {
-        Image(systemName: Self.symbol(freshness)).foregroundStyle(Self.color(freshness))
+        Image(systemName: Self.symbol(freshness)).foregroundStyle(
+          ServiceStatusView.color(badge.tone))
       }
-      .accessibilityLabel(Text(verbatim: "\(service.name.value): \(freshness.label)"))
+      .accessibilityLabel(Text(verbatim: "\(service.name.value): \(badge.label)"))
     }
   }
 
@@ -70,24 +84,16 @@ struct FreshnessBadge: View {
     case .revoked: return "lock.slash"
     }
   }
-
-  static func color(_ freshness: Freshness) -> Color {
-    switch freshness {
-    case .live: return .green
-    case .connecting: return .secondary
-    case .stale: return .orange
-    case .revoked: return .red
-    }
-  }
 }
 
 struct ServiceRow: View {
   let service: ServiceStatusModel
+  let recording: RecordingHealth
 
   var body: some View {
     VStack(alignment: .leading, spacing: 2) {
       Text(verbatim: service.name.value).font(.headline)
-      FreshnessBadge(service: service).font(.caption)
+      FreshnessBadge(service: service, recording: recording).font(.caption)
       Text(verbatim: service.endpoint.value).font(.caption2).foregroundStyle(.secondary)
     }
     .padding(.vertical, 2)
@@ -96,6 +102,7 @@ struct ServiceRow: View {
 
 struct ServiceStatusView: View {
   let service: ServiceStatusModel
+  let recording: RecordingHealth
 
   var body: some View {
     TimelineView(.periodic(from: .now, by: 0.5)) { context in
@@ -104,7 +111,7 @@ struct ServiceStatusView: View {
         HStack {
           Text(verbatim: service.name.value).font(.title2.bold())
           Spacer()
-          FreshnessBadge(service: service)
+          FreshnessBadge(service: service, recording: recording)
         }
         if case .stale(_, let lastGood, let reason) = freshness {
           Text(verbatim: Self.staleLine(lastGood: lastGood, reason: reason))

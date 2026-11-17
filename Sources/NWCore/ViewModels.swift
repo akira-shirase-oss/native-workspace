@@ -173,6 +173,23 @@ extension ItemStatus {
   }
 }
 
+/// The badge for a service: freshness, and whether its events are being
+/// recorded. Never green unless both are fine.
+public enum StatusBadge {
+  public static func display(_ freshness: Freshness, recording: RecordingHealth) -> DisplayState {
+    switch (freshness, recording) {
+    case (.live, .recording): return DisplayState(label: freshness.label, tone: .good)
+    case (.live, .failed):
+      return DisplayState(label: "Live — not recording", tone: .warning)
+    case (_, .failed):
+      return DisplayState(label: freshness.label + " — not recording", tone: .warning)
+    case (.connecting, _): return DisplayState(label: freshness.label, tone: .neutral)
+    case (.stale, _): return DisplayState(label: freshness.label, tone: .warning)
+    case (.revoked, _): return DisplayState(label: freshness.label, tone: .bad)
+    }
+  }
+}
+
 /// One paired service as the shell shows it: the connection state machine
 /// and the last good snapshot. Freshness is asked with a time, so a view
 /// that re-evaluates on a timer turns stale even when no poll comes back.

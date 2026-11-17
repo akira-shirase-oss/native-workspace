@@ -120,3 +120,43 @@ final class AppModelTests: XCTestCase {
     XCTAssertEqual(config.durability, .fullFsync)
   }
 }
+
+/// F5 in the shell: a store failure is a banner and a non-green badge, the
+/// lost events are gap rows, and recording resumes without a restart.
+@MainActor
+final class AppModelStoreFailureTests: XCTestCase {
+  func testAStoreFailureIsShownAndRecovers() async throws {
+    let smon = ServiceMonitorEmulator(.init(token: shellToken, monitors: 2, slotInterval: 0.02))
+    let server = FixtureHTTPServer { smon.handle($0) }
+    try await server.start()
+    var config = AppConfiguration()
+    config.serviceMonitorURL = server.baseURL
+    config.storeDirectory = temporaryStore()
+    config.pollInterval = 0.1
+    config.durability = .none
+    defer { try? FileManager.default.removeItem(at: config.storeDirectory!) }
+    let model = AppModel(configuration: config, credentials: credentials(shellToken))
+    model.start()
+    while model.events.rows.count < 20 { try await Task.sleep(for: .milliseconds(20)) }
+    model.injectStoreFailureForTesting()
+    var sawFailure = false
+    let end = Date().addingTimeInterval(10)
+    while Date() < end {
+      if !model.recording.isRecording {
+        sawFailure = true
+        let badge = StatusBadge.display(.live(asOf: Date()), recording: model.recording)
+        XCTAssertNotEqual(badge.tone, .good)
+      }
+      if sawFailure, model.recording.isRecording { break }
+      try await Task.sleep(for: .milliseconds(20))
+    }
+    XCTAssertTrue(sawFailure, "the failure was never shown")
+    XCTAssertTrue(model.recording.isRecording, "recording did not resume")
+    XCTAssertGreaterThan(model.counters.pump.recoveries, 0)
+    let gapCounts = model.events.rows.filter(\.isGap).reduce(UInt64(0)) { $0 + ($1.gapCount ?? 0) }
+    XCTAssertEqual(gapCounts, model.counters.pump.notStored)
+    XCTAssertGreaterThan(gapCounts, 0)
+    await model.stop()
+    await server.stop()
+  }
+}

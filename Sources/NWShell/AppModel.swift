@@ -95,6 +95,9 @@ public final class AppModel {
   public private(set) var problems: [InertString] = []
   public private(set) var counters = IngestCounters()
   public private(set) var started = false
+  /// Whether events are being recorded; shown in the window and on every
+  /// service badge, never green while failed.
+  public private(set) var recording = RecordingHealth.recording
 
   @ObservationIgnored private let credentials: any CredentialSource
   @ObservationIgnored private var queue: IngestQueue?
@@ -133,10 +136,15 @@ public final class AppModel {
     }
     self.queue = queue
     self.store = store
-    let pump = IngestPump(queue: queue, store: store) { [weak self] batch in
+    let storeConfig = store.configuration
+    let recovery = StoreRecovery { () throws(StoreError) -> EventStore in
+      try EventStore(storeConfig, freshSegment: true)
+    }
+    let pump = IngestPump(queue: queue, store: store, recovery: recovery) { [weak self] batch in
       guard let self else { return }
       if self.recordAcknowledged { self.acknowledged += batch.accepted.map(\.identity) }
       self.events.apply(batch.rows)
+      self.recording = batch.recording
       self.refreshCounters()
     }
     self.pump = pump
@@ -196,7 +204,7 @@ public final class AppModel {
     for connection in connections { await connection.stop() }
     await pump?.flush()
     await pump?.stop()
-    store?.close()
+    (pump?.store ?? store)?.close()
     refreshCounters()
   }
 
@@ -209,8 +217,11 @@ public final class AppModel {
   public func flush() async { await pump?.flush() }
 
   public func storedIdentities() -> [EventIdentity] {
-    store?.recent(Int.max).map(\.identity) ?? []
+    (pump?.store ?? store)?.recent(Int.max).map(\.identity) ?? []
   }
+
+  /// Test seam: the next store write fails as an I/O error would.
+  func injectStoreFailureForTesting() { (pump?.store ?? store)?.injectWriteFailureForTesting() }
 
   private func problem(_ text: String) {
     problems.append(InertString(text, maxScalars: 512))
@@ -218,7 +229,7 @@ public final class AppModel {
 
   private func refreshCounters() {
     counters = IngestCounters(
-      queue: queue?.stats ?? IngestStats(), store: store?.stats ?? StoreStats(),
+      queue: queue?.stats ?? IngestStats(), store: (pump?.store ?? store)?.stats ?? StoreStats(),
       pump: pump?.stats ?? PumpStats())
   }
 }

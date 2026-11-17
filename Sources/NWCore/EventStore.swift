@@ -83,12 +83,17 @@ public final class EventStore: Sendable {
   public let configuration: Configuration
   private let state: Mutex<StoreState>
 
-  public init(_ configuration: Configuration) throws(StoreError) {
+  /// - Parameter freshSegment: write into a new segment rather than append
+  ///   to the last one — how a recovery avoids the file whose write or sync
+  ///   failed.
+  public init(_ configuration: Configuration, freshSegment: Bool = false) throws(StoreError) {
     precondition(configuration.retention > 0 && configuration.segmentEvents > 0)
     self.configuration = configuration
     var s = StoreState(retention: configuration.retention)
     if let directory = configuration.directory {
-      try s.open(directory: directory, segmentEvents: configuration.segmentEvents)
+      try s.open(
+        directory: directory, segmentEvents: configuration.segmentEvents,
+        freshSegment: freshSegment)
     }
     self.state = Mutex(s)
   }
@@ -142,7 +147,7 @@ public final class EventStore: Sendable {
   public func close() { state.withLock { $0.closeFile() } }
 
   /// Test seam: the next disk write fails as an I/O error would.
-  func injectWriteFailureForTesting() { state.withLock { $0.injectWriteFailure = true } }
+  package func injectWriteFailureForTesting() { state.withLock { $0.injectWriteFailure = true } }
 }
 
 private struct Segment {
@@ -206,7 +211,7 @@ private struct StoreState {
 
   // MARK: disk
 
-  mutating func open(directory: URL, segmentEvents: Int) throws(StoreError) {
+  mutating func open(directory: URL, segmentEvents: Int, freshSegment: Bool) throws(StoreError) {
     self.directory = directory
     do {
       try FileManager.default.createDirectory(
@@ -242,7 +247,7 @@ private struct StoreState {
     }
     stats.evicted = 0
     stats.segmentsOnDisk = segments.count
-    if let last = segments.last, last.count < segmentEvents {
+    if !freshSegment, let last = segments.last, last.count < segmentEvents {
       try openForAppend(last.url)
     }
   }
@@ -301,6 +306,7 @@ private struct StoreState {
     } catch {
       throw StoreError.io("encode: \(error.localizedDescription)")
     }
+    let before = lseek(fd, 0, SEEK_END)
     let written = bytes.withUnsafeBytes { raw -> Bool in
       var offset = 0
       while offset < raw.count {
@@ -314,8 +320,12 @@ private struct StoreState {
       return true
     }
     guard written, !injectWriteFailure, sync(fd, config.durability) else {
+      let failure = errno
       poisoned = true
-      throw StoreError.io("append failed: errno \(errno)")
+      // Best effort: take the unacknowledged bytes back off the disk, so a
+      // reopen never reads them as if they had been acknowledged.
+      if before >= 0 { _ = ftruncate(fd, before) }
+      throw StoreError.io("append failed: errno \(failure)")
     }
     segments[segments.count - 1].count += events.count
   }
