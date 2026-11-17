@@ -1,0 +1,59 @@
+{
+  "acknowledged_events": 98469,
+  "acknowledged_lost": 0,
+  "app_restarts": 2,
+  "backoff": {
+    "base_s": 0.05,
+    "cap_s": 0.4,
+    "jitter": 0.2
+  },
+  "commit": "4d16592 sources (built from the working tree a minute before that commit; the fixture-server fix it contains is in 4d16592)",
+  "detection_s": {
+    "count": 1000,
+    "max": 0.7739510536193848,
+    "p50": 0.016592025756835938,
+    "p95": 0.08775699138641357,
+    "p99": 0.28880298137664795
+  },
+  "drill": "disconnect-restart (package level, fixture server)",
+  "duplicate_rows": 0,
+  "duplicates_refused_by_store": 10,
+  "ended": "2026-11-16T21:22 local, load average 21.31 40.92 39.84",
+  "grace_s": 0.1,
+  "green_while_not_live": 0,
+  "iterations": 1000,
+  "live_while_down": 0,
+  "machine": {
+    "cores": 12,
+    "cpu": "Apple M2 Pro",
+    "macos": "27.2.1",
+    "model": "Mac14,10"
+  },
+  "missed_recoveries": 0,
+  "not_stale_while_down": 0,
+  "pass": true,
+  "poll_deadline_s": 0.25,
+  "poll_interval_s": 0.1,
+  "polls": 5248,
+  "reading_notes": [
+    "detection_s is the time from a kill to the first sample that is not live; it includes the sampler's own scheduling delay on a loaded machine (max 0.77 s), while the pass condition is that no sample taken at or after kill + poll interval + grace (0.2 s) is live: live_while_down = 0",
+    "recovery_s counts the restarts that were followed by live data before the next kill (810 of 1,000); missed_recoveries counts restarts that stayed up longer than the bound without recovering: 0",
+    "drill timings are scaled down from the contract (0.1 s polls, 0.1 s grace, backoff 0.05 s doubling to 0.4 s) so 1,000 kills fit in minutes; the contract timings (2 s, 1 s, 1 s to 30 s) run in the real-service drill"
+  ],
+  "recovery_bound_s": 1.25,
+  "recovery_s": {
+    "count": 810,
+    "max": 0.7554479837417603,
+    "p50": 0.12005603313446045,
+    "p95": 0.4192129373550415,
+    "p99": 0.5643340349197388
+  },
+  "retained_after_reopen": 98469,
+  "samples": 100683,
+  "server_requests_by_method": {
+    "GET": 19661
+  },
+  "started": "2026-11-16T21:09 local, load average 65.70 29.40 31.37",
+  "test": "NWAdaptersTests.DisconnectRestartDrillTests/testDisconnectRestartDrill passed (737.0 s)",
+  "toolchain": "Xcode 27.2 Build version 27B52; debug build (swift test)"
+}
