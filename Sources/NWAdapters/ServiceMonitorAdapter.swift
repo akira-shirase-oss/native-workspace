@@ -79,7 +79,7 @@ public final class ServiceMonitorAdapter: ServiceAdapter {
       let faults: [String]?
     }
     let monitoring: Monitoring?
-    let monitors: [Monitor]
+    let monitors: [Lossy<Monitor>]
   }
 
   struct Monitor: Decodable {
@@ -91,7 +91,7 @@ public final class ServiceMonitorAdapter: ServiceAdapter {
     let status: String
   }
 
-  struct CheckList: Decodable { let checks: [Check] }
+  struct CheckList: Decodable { let checks: [Lossy<Check>] }
 
   struct Check: Decodable {
     let slot_at: String
@@ -101,7 +101,7 @@ public final class ServiceMonitorAdapter: ServiceAdapter {
     let detail: String?
   }
 
-  struct IncidentList: Decodable { let incidents: [Incident] }
+  struct IncidentList: Decodable { let incidents: [Lossy<Incident>] }
 
   struct Incident: Decodable {
     let id: Int64
@@ -147,8 +147,9 @@ public final class ServiceMonitorAdapter: ServiceAdapter {
     let list = try Wire.decode(MonitorList.self, listReply, what: "monitors")
     // Service Monitor's ids are UUIDs. Anything else is not put in a URL —
     // it is skipped and said, never sent (with the token) as a path.
-    let wellFormed = list.monitors.filter { UUID(uuidString: $0.id) != nil }
-    let invalidIDs = list.monitors.count - wellFormed.count
+    let (readableMonitors, unreadableMonitors) = list.monitors.readable()
+    let wellFormed = readableMonitors.filter { UUID(uuidString: $0.id) != nil }
+    let invalidIDs = readableMonitors.count - wellFormed.count
     let monitors = Array(wellFormed.prefix(limits.maxMonitors))
 
     let version = try await currentVersion()
@@ -159,12 +160,15 @@ public final class ServiceMonitorAdapter: ServiceAdapter {
     guard incidentsReply.status == 200 else {
       throw AdapterError.httpStatus(incidentsReply.status, Wire.errorCode(incidentsReply))
     }
-    let incidents = try Wire.decode(IncidentList.self, incidentsReply, what: "incidents")
+    let (incidentList, unreadableIncidents) = try Wire.decode(
+      IncidentList.self, incidentsReply, what: "incidents"
+    ).incidents.readable()
 
     let names = Dictionary(monitors.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a })
     var events: [Event] = []
+    let unreadableChecks = checks.reduce(0) { $0 + $1.2 }
     cursor.withLock { cursor in
-      for (monitorID, list) in checks {
+      for (monitorID, list, _) in checks {
         let name = names[monitorID] ?? monitorID
         var newest = cursor.newestSlot[monitorID]
         for check in list.reversed() {  // the API answers newest first
@@ -178,7 +182,7 @@ public final class ServiceMonitorAdapter: ServiceAdapter {
     }
     cursor.withLock { cursor in
       if cursor.seenIncidents.count > 4_096 { cursor.seenIncidents.removeAll() }
-      for incident in incidents.incidents.reversed() {
+      for incident in incidentList.reversed() {
         let event = Self.event(incident, name: names[incident.monitor_id], observedAt)
         if cursor.seenIncidents.insert(event.key).inserted { events.append(event) }
       }
@@ -193,6 +197,10 @@ public final class ServiceMonitorAdapter: ServiceAdapter {
     // `/readyz` says "ready" where the monitor list says "ok": the same verdict.
     if invalidIDs > 0 {
       verdict += " · skipped \(invalidIDs) monitors with an invalid id"
+    }
+    let unreadable = unreadableMonitors + unreadableChecks + unreadableIncidents
+    if unreadable > 0 {
+      verdict += " · skipped \(unreadable) unreadable items"
     }
     if let monitoring = list.monitoring, monitoring.status != "ok",
       monitoring.status != readiness.status
@@ -230,14 +238,16 @@ public final class ServiceMonitorAdapter: ServiceAdapter {
     return version.version
   }
 
-  /// One request per monitor, at most `concurrency` in flight.
-  private func fetchChecks(_ monitors: [Monitor]) async throws(AdapterError) -> [(String, [Check])]
+  /// One request per monitor, at most `concurrency` in flight. Each result
+  /// carries how many of that monitor's checks could not be read.
+  private func fetchChecks(_ monitors: [Monitor]) async throws(AdapterError)
+    -> [(String, [Check], Int)]
   {
     let limit = limits.checksPerMonitor
     let width = max(1, limits.concurrency)
     do {
-      return try await withThrowingTaskGroup(of: (String, [Check]).self) { group in
-        var results: [(String, [Check])] = []
+      return try await withThrowingTaskGroup(of: (String, [Check], Int).self) { group in
+        var results: [(String, [Check], Int)] = []
         var next = 0
         func launch() {
           guard next < monitors.count else { return }
@@ -247,11 +257,13 @@ public final class ServiceMonitorAdapter: ServiceAdapter {
             let reply = try await get(
               ["api", "monitors", monitor.id, "checks"],
               query: [URLQueryItem(name: "limit", value: "\(limit)")], authorized: true)
-            if reply.status == 404 { return (monitor.id, []) }  // deleted between reads
+            if reply.status == 404 { return (monitor.id, [], 0) }  // deleted between reads
             guard reply.status == 200 else {
               throw AdapterError.httpStatus(reply.status, Wire.errorCode(reply))
             }
-            return (monitor.id, try Wire.decode(CheckList.self, reply, what: "checks").checks)
+            let (checks, unreadable) = try Wire.decode(CheckList.self, reply, what: "checks")
+              .checks.readable()
+            return (monitor.id, checks, unreadable)
           }
         }
         for _ in 0..<width { launch() }

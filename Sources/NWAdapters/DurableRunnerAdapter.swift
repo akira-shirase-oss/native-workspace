@@ -44,7 +44,7 @@ public final class DurableRunnerAdapter: ServiceAdapter {
   }
 
   struct Page: Decodable {
-    let runs: [Run]
+    let runs: [Lossy<Run>]
   }
 
   private func get(_ path: [String], query: [URLQueryItem] = []) async throws(AdapterError)
@@ -73,28 +73,29 @@ public final class DurableRunnerAdapter: ServiceAdapter {
     guard pageReply.status == 200 else {
       throw AdapterError.httpStatus(pageReply.status, Wire.errorCode(pageReply))
     }
-    let page = try Wire.decode(Page.self, pageReply, what: "jobs")
+    let (runs, unreadable) = try Wire.decode(Page.self, pageReply, what: "jobs").runs.readable()
 
     var events: [Event] = []
     seen.withLock { seen in
       if seen.count > 8_192 { seen.removeAll() }  // bounded; the store de-duplicates
-      for run in page.runs.reversed() {
+      for run in runs.reversed() {
         let event = Self.event(run, observedAt)
         if seen.insert(event.key).inserted { events.append(event) }
       }
     }
     var counts: [String: Int] = [:]
-    for run in page.runs { counts[Self.phase(run.state), default: 0] += 1 }
+    for run in runs { counts[Self.phase(run.state), default: 0] += 1 }
     let order = [
       "running", "queued", "retry_waiting", "reconciling", "failed", "cancelled", "done",
     ]
     let items = order.compactMap { phase -> ItemStatus? in
       guard let n = counts[phase] else { return nil }
       return ItemStatus(
-        id: phase, name: phase, state: .info, detail: "\(n) of the newest \(page.runs.count) runs")
+        id: phase, name: phase, state: .info, detail: "\(n) of the newest \(runs.count) runs")
     }
     let snapshot = ServiceSnapshot(
-      verdict: ready.ready ? "ready" : "not ready: \(ready.code ?? "unknown")",
+      verdict: (ready.ready ? "ready" : "not ready: \(ready.code ?? "unknown")")
+        + (unreadable > 0 ? " · skipped \(unreadable) unreadable runs" : ""),
       verdictOK: ready.ready, items: items, asOf: observedAt)
     return PollOutcome(snapshot: snapshot, events: events)
   }

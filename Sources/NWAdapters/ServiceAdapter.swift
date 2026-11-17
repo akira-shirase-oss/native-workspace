@@ -77,16 +77,73 @@ public enum EndpointPolicy {
   }
 }
 
+/// One list element, decoded on its own: an element that cannot be read is
+/// `nil` (and counted), never the end of the whole list.
+struct Lossy<T: Decodable>: Decodable {
+  let value: T?
+  init(from decoder: any Decoder) throws { value = try? T(from: decoder) }
+}
+
+extension Array {
+  /// The readable elements, and how many were not.
+  func readable<T>() -> ([T], Int) where Element == Lossy<T> {
+    let values = compactMap(\.value)
+    return (values, count - values.count)
+  }
+}
+
 /// Small helpers shared by adapters.
 enum Wire {
   static func decode<T: Decodable>(_ type: T.Type, _ reply: HTTPReply, what: String)
     throws(AdapterError) -> T
   {
     do {
-      return try JSONDecoder().decode(T.self, from: reply.body)
+      return try JSONDecoder().decode(T.self, from: repaired(reply.body))
     } catch {
       throw AdapterError.decoding("\(what): \(error)")
     }
+  }
+
+  /// Text the decoder would refuse, made decodable without guessing: invalid
+  /// UTF-8 becomes U+FFFD, and a `\uD800`–`\uDFFF` escape that is not half
+  /// of a valid pair becomes `\ufffd`. Valid input comes back unchanged. One
+  /// bad string then costs one character, not the whole poll.
+  static func repaired(_ data: Data) -> Data {
+    var bytes = [UInt8](data)
+    if String(validating: bytes, as: UTF8.self) == nil {
+      bytes = Array(String(decoding: bytes, as: UTF8.self).utf8)
+    }
+    func unit(at i: Int) -> UInt16? {
+      guard i + 5 < bytes.count, bytes[i] == 0x5C, bytes[i + 1] == 0x75 else { return nil }
+      return UInt16(String(decoding: bytes[(i + 2)...(i + 5)], as: UTF8.self), radix: 16)
+    }
+    let replacement = Array("\\ufffd".utf8)
+    var out: [UInt8] = []
+    var changed = false
+    var i = 0
+    while i < bytes.count {
+      guard bytes[i] == 0x5C, i + 1 < bytes.count else {
+        out.append(bytes[i])
+        i += 1
+        continue
+      }
+      if let code = unit(at: i), (0xD800...0xDFFF).contains(code) {
+        if code <= 0xDBFF, let low = unit(at: i + 6), (0xDC00...0xDFFF).contains(low) {
+          out.append(contentsOf: bytes[i..<(i + 12)])  // a valid pair
+          i += 12
+        } else {
+          out.append(contentsOf: replacement)
+          changed = true
+          i += 6
+        }
+        continue
+      }
+      out.append(bytes[i])  // any other escape: keep it and the escaped byte
+      out.append(bytes[i + 1])
+      i += 2
+    }
+    if !changed { return Data(bytes) }
+    return Data(out)
   }
 
   static func errorCode(_ reply: HTTPReply) -> String {

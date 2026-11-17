@@ -12,6 +12,7 @@ HTTP/1.1 server that can be killed and restarted and that records every request'
 | `burst-10k` | `nw-fixture-server --burst-every 5 --burst-size 10000`; `IngestQueueTests` (ten repeated 15,000-event bursts); the replay's overload bursts | N0: package level. The app-level run under Instruments is N2 |
 | `disconnect-restart` | `DisconnectRestartDrillTests` (fixture server, random kill/restart points) and `RealServiceDrillTests` + `scripts/drill-real-services.sh` (scratch Service Monitor and Durable Runner, SIGKILL) | N0: used |
 | `revoked-credential` | `ServiceMonitorEmulator.revoke()`; `ServiceConnectionTests` | N0: package level. The UI test is N1 |
+| `lossy-wire` | `LossyDecodeTests`: invalid UTF-8 bytes and lone `\uD800`–`\uDFFF` escapes inside otherwise valid Service Monitor and Durable Runner responses, plus items of the wrong shape | used: repaired to U+FFFD, unreadable items skipped and counted |
 | `secret-corpus` | — | Owed at N2 with the redactor (D-017) |
 | `unsafe-proposal` | — | N3, after promotion |
 | `disconnect-mid-action` | — | N4, after promotion |
