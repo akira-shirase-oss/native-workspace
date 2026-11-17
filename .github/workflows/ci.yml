@@ -1,0 +1,36 @@
+# The N0 gate on a GitHub-hosted macOS runner with a pinned Xcode (D-023,
+# D-024). It runs exactly scripts/check.sh. The deployment target is macOS 26
+# and the runner compiles against its macOS 26.5 SDK, so an API newer than the
+# runner's macOS cannot compile here; check.sh also refuses a deployment
+# target newer than the runner.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Machine
+        run: |
+          sw_vers
+          sysctl -n machdep.cpu.brand_string hw.ncpu hw.memsize
+          uptime
+      - name: scripts/check.sh
+        run: scripts/check.sh
