@@ -39,7 +39,12 @@ The app is an unsigned SwiftPM executable for now (N1 brings the Xcode
 project, signing, App Sandbox and the entitled Keychain). It pairs from the
 environment under the development exception (D-015): `NW_SMON_URL` (loopback
 only) with `NW_SMON_TOKEN`, and/or `NW_DURABLE_URL` (open reads, no
-credential). It only ever sends `GET`.
+credential). It only ever sends `GET`, and it sends Service Monitor
+nothing unless the process listening on the port is the paired program
+(`NW_SMON_EXPECT_EXECUTABLE`, else the first one seen; D-015). An
+environment token is weak — it usually sits in plain text in a shell
+profile and is inherited by child processes — so the app unsets it once
+read; N1 replaces it with Keychain pairing.
 
 ## Blocked on
 

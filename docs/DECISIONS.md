@@ -152,6 +152,13 @@ starting values; changing one needs a measurement and a new entry.
   same user can still read the token from this process. The real fix is
   server authentication in Service Monitor (TLS with a certificate pinned
   at pairing, or a Unix-domain socket checked with `getpeereid`), with W-1.
+  *The environment token.* Exploration pairs from `NW_SMON_TOKEN` in the
+  process environment. That is weak: such tokens usually sit in plain text
+  in a shell profile or script, and every child of the shell that holds them
+  inherits them. The app unsets the variable as soon as it has read it (it
+  spawns no processes itself), and the environment source is
+  exploration-only: N1 pairs through the Keychain (this device only) and
+  removes the environment source from the default chain.
 - **D-016 — Log text is untrusted and rendered inert.** ANSI and other
   terminal escape sequences (CSI, OSC), C0 and C1 control characters other
   than tab and newline, and the Unicode bidi overrides and isolates

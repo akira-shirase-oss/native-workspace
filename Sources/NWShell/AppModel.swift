@@ -194,6 +194,11 @@ public final class AppModel {
     if let url = config.serviceMonitorURL {
       do {
         let token = try credentials.token(account: ServiceID.serviceMonitor.rawValue)
+        // Exploration-only pairing (D-015): a token taken from the environment
+        // does not stay there once read. The app spawns no processes, but
+        // nothing else in it should find the variable either. N1 pairs through
+        // the Keychain and drops the environment source.
+        unsetenv("NW_SMON_TOKEN")
         if token == nil {
           problem("Service Monitor at \(url.absoluteString): no token paired.")
         }
