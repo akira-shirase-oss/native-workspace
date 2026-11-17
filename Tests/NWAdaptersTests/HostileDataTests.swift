@@ -76,7 +76,7 @@ final class HostileDataTests: XCTestCase {
         XCTAssertTrue(path.hasSuffix("/checks"), path)
         let encoded = path.dropFirst("/prefix/api/monitors/".count).dropLast("/checks".count)
         XCTAssertFalse(encoded.contains("/"), path)
-        XCTAssertEqual(String(encoded).removingPercentEncoding, segment)
+        XCTAssertEqual(percentDecoded(String(encoded)), segment)
         XCTAssertNil(url.query)
         XCTAssertNil(url.fragment)
       } catch {
@@ -176,6 +176,24 @@ final class HostileDataTests: XCTestCase {
       XCTAssertFalse(request.path.contains(".."), request.path)
     }
   }
+}
+
+/// Byte-exact percent-decoding. (`removingPercentEncoding` on older
+/// Foundation drops a leading U+FEFF, which made CI disagree with this Mac.)
+func percentDecoded(_ text: String) -> String? {
+  var bytes: [UInt8] = []
+  var iterator = Array(text.utf8).makeIterator()
+  while let byte = iterator.next() {
+    if byte == UInt8(ascii: "%") {
+      guard let high = iterator.next(), let low = iterator.next(),
+        let value = UInt8(String(decoding: [high, low], as: UTF8.self), radix: 16)
+      else { return nil }
+      bytes.append(value)
+    } else {
+      bytes.append(byte)
+    }
+  }
+  return String(validating: bytes, as: UTF8.self)
 }
 
 /// A small deterministic generator (SplitMix64) for reproducible fuzzing.
