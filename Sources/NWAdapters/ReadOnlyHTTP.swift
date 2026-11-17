@@ -179,15 +179,16 @@ public final class BoundedURLSessionTransport: NSObject, ReadOnlyTransport, URLS
   {
     let limit = limits.maxResponseBytes
     let over = tasks.withLock { pending -> Bool in
-      guard var entry = pending[dataTask.taskIdentifier] else { return false }
-      if entry.body.count + data.count > limit {
-        entry.failure = .tooLarge(limit: limit)
-        entry.body = Data()
-        pending[dataTask.taskIdentifier] = entry
+      let id = dataTask.taskIdentifier
+      guard let received = pending[id]?.body.count else { return false }
+      if received + data.count > limit {
+        pending[id]?.failure = .tooLarge(limit: limit)
+        pending[id]?.body = Data()
         return true
       }
-      entry.body.append(data)
-      pending[dataTask.taskIdentifier] = entry
+      // In place: copying the entry out and back copied the whole body on
+      // every chunk (quadratic up to the cap).
+      pending[id]?.body.append(data)
       return false
     }
     if over { dataTask.cancel() }
