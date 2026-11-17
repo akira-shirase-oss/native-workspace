@@ -102,7 +102,7 @@ final class TransportTests: XCTestCase {
     } catch {
       XCTAssertEqual(error, .timeout)
     }
-    XCTAssertLessThan(Date().timeIntervalSince(started), 1.0)
+    XCTAssertLessThan(Date().timeIntervalSince(started), 0.4 + 0.3, "the deadline is the timer")
   }
 
   func testAHungServiceHitsTheDeadline() async throws {
@@ -116,7 +116,7 @@ final class TransportTests: XCTestCase {
     } catch {
       XCTAssertEqual(error, .timeout)
     }
-    XCTAssertLessThan(Date().timeIntervalSince(started), 1.5)
+    XCTAssertLessThan(Date().timeIntervalSince(started), 0.3 + 0.3, "the deadline is the timer")
   }
 
   func testCancellingTheTaskCancelsTheTransfer() async throws {

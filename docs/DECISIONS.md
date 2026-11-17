@@ -248,13 +248,20 @@ starting values; changing one needs a measurement and a new entry.
   SwiftUI list and multi-line rows in the list (a detail view shows a full
   line, N2). The old list stays behind `NW_EVENT_LIST=swiftui-list` so the
   profiling drill can be reproduced.
-- **D-027 — The transport enforces its own hard deadline.** URLSession's
-  resource timeout is not one: a response without `Content-Type` was held for
-  content sniffing and a 2 s limit took about 4 s. Every request now also has
-  a timer that cancels it at the deadline and reports `timeout`. The poll
-  deadline can be raised for measurement (`NW_POLL_DEADLINE_S`, 0.2–10 s);
-  that never delays the stale label, which is derived from time (live only
-  within one poll interval plus the 1 s grace). Cost: one timer per request.
+- **D-027 — The transport enforces its own hard deadline.** Every request
+  has a timer that cancels it at the deadline and reports `timeout`; it is
+  the deadline. URLSession's resource timeout stays as a backstop at twice
+  the deadline. Why: during N0 a 2 s limit once took about 4 s on a
+  response without `Content-Type` (URLSession held it for content
+  sniffing); an independent attempt on Xcode 27.2 did not reproduce that
+  stretch, so the observation is recorded as observed once, not as a
+  reproduced bug. What proves the timer now: `testATrickledBodyHitsTheHardDeadline`
+  (a body trickled under a 5 s idle timeout and a 0.4 s deadline) must end
+  within 0.7 s; with the timer removed it ends at the backstop, 0.82 s, and
+  fails. The poll deadline can be raised for measurement
+  (`NW_POLL_DEADLINE_S`, 0.2–10 s); that never delays the stale label,
+  which is derived from time (live only within one poll interval plus the
+  1 s grace). Cost: one timer per request.
 - **D-028 — N0 layout and toolchain.** One SwiftPM package at the repository
   root: pure library targets, the shell, and three executables (the app,
   `nw-replay`, `nw-fixture-server`); the fixtures target is never linked into

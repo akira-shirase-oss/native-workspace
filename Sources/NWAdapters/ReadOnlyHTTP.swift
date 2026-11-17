@@ -97,7 +97,9 @@ public final class BoundedURLSessionTransport: NSObject, ReadOnlyTransport, URLS
     super.init()
     let config = URLSessionConfiguration.ephemeral
     config.timeoutIntervalForRequest = limits.idleTimeout
-    config.timeoutIntervalForResource = limits.deadline
+    // The deadline is this transport's own timer (D-027); URLSession's
+    // resource timeout is only a backstop, at twice the deadline.
+    config.timeoutIntervalForResource = limits.deadline * 2
     config.waitsForConnectivity = false
     config.httpCookieStorage = nil
     config.httpShouldSetCookies = false
@@ -128,8 +130,8 @@ public final class BoundedURLSessionTransport: NSObject, ReadOnlyTransport, URLS
         try await withCheckedThrowingContinuation { continuation in
           tasks.withLock { $0[id] = Pending(continuation: continuation, origin: origin) }
           if Task.isCancelled { task.cancel() }
-          // URLSession's resource timeout is not a hard deadline (content
-          // sniffing and connection reuse can stretch it); this is.
+          // The hard deadline. URLSession's resource timeout (twice this) is
+          // only a backstop: once observed stretching past its limit.
           DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + limits.deadline) {
             [weak self] in
             self?.expire(task)
