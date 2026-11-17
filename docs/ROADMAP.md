@@ -61,9 +61,13 @@ Mac (Apple M2 Pro, 12 cores, 32 GB, macOS 27.2.1, Xcode 27.2 / Swift 6.4.2).
 
 ### Fix round after the independent review (2026-11-16/17)
 
-Each fix landed in its own commit with a test that failed first; the
-gate ran before every push and CI confirmed each push (or, when a later
-push cancelled a run, the run that contained it).
+Each fix landed in its own commit with a test that failed first (F14,
+performance only, excepted), and `scripts/check.sh` passed before every
+push. CI on `macos-26`: every push passed except `eb6aa02` (F3), which
+failed — the new segment test decoded with `removingPercentEncoding`,
+which drops a leading U+FEFF on the runner's Foundation — and was fixed
+by `3bf34e6`; the runs of `00fcf69` and `bc1f35e` were cancelled by the
+next push, and the runs that contain them (`3bf34e6`, `9588924`) passed.
 
 | Fix | What changed | Proof (failed before the fix) |
 |---|---|---|
