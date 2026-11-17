@@ -21,6 +21,14 @@ public struct RootView: View {
       .navigationTitle("Services")
     } detail: {
       VStack(alignment: .leading, spacing: 0) {
+        if model.loadingHistory {
+          Label {
+            Text(verbatim: "Loading history…")
+          } icon: {
+            ProgressView().controlSize(.small)
+          }
+          .padding(8)
+        }
         if case .failed(let since, let reason, let unrecorded) = model.recording {
           Label {
             Text(

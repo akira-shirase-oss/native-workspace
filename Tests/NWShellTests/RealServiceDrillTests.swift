@@ -37,7 +37,7 @@ final class RealServiceDrillTests: XCTestCase {
 
     let model = AppModel(configuration: config)
     model.recordAcknowledged = true
-    model.start()
+    await model.start()
     XCTAssertEqual(model.problems, [], "pairing problems: \(model.problems)")
     let threshold = config.pollInterval + config.grace
 

@@ -41,7 +41,7 @@ final class AppModelTests: XCTestCase {
     defer { try? FileManager.default.removeItem(at: config.storeDirectory!) }
 
     let model = AppModel(configuration: config, credentials: credentials(shellToken))
-    model.start()
+    await model.start()
     XCTAssertEqual(model.problems, [])
     XCTAssertEqual(model.services.map(\.id), [.serviceMonitor, .durableRunner])
     let deadline = Date().addingTimeInterval(5)
@@ -74,7 +74,7 @@ final class AppModelTests: XCTestCase {
     defer { try? FileManager.default.removeItem(at: config.storeDirectory!) }
     let first = AppModel(configuration: config, credentials: credentials(shellToken))
     first.recordAcknowledged = true
-    first.start()
+    await first.start()
     while first.acknowledged.count < 20 { try await Task.sleep(for: .milliseconds(20)) }
     await first.stop()
     await server.stop()
@@ -84,25 +84,25 @@ final class AppModelTests: XCTestCase {
     offline.serviceMonitorURL = nil
     offline.durableRunnerURL = nil
     let second = AppModel(configuration: offline, credentials: credentials(nil))
-    second.start()
+    await second.start()
     let back = Set(second.storedIdentities())
     XCTAssertTrue(acknowledged.allSatisfy { back.contains($0) })
     XCTAssertGreaterThanOrEqual(second.events.rows.count, 20)
     XCTAssertEqual(second.problems.count, 1, "no service paired is said, not hidden")
   }
 
-  func testPairingProblemsAreShownNotLogged() {
+  func testPairingProblemsAreShownNotLogged() async {
     var config = AppConfiguration()
     config.storeDirectory = nil
     config.serviceMonitorURL = URL(string: "https://monitor.example.com")
     let remote = AppModel(configuration: config, credentials: credentials(shellToken))
-    remote.start()
+    await remote.start()
     XCTAssertEqual(remote.services.count, 0)
     XCTAssertTrue(remote.problems.first?.value.contains("loopback") ?? false, "\(remote.problems)")
 
     config.serviceMonitorURL = URL(string: "http://127.0.0.1:60499")
     let tokenless = AppModel(configuration: config, credentials: credentials(nil))
-    tokenless.start()
+    await tokenless.start()
     XCTAssertTrue(tokenless.problems.first?.value.contains("no token") ?? false)
     for problem in remote.problems + tokenless.problems {
       XCTAssertFalse(problem.value.contains(shellToken))
@@ -136,7 +136,7 @@ final class AppModelStoreFailureTests: XCTestCase {
     config.durability = .none
     defer { try? FileManager.default.removeItem(at: config.storeDirectory!) }
     let model = AppModel(configuration: config, credentials: credentials(shellToken))
-    model.start()
+    await model.start()
     while model.events.rows.count < 20 { try await Task.sleep(for: .milliseconds(20)) }
     model.injectStoreFailureForTesting()
     var sawFailure = false

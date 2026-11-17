@@ -13,6 +13,8 @@
 #   --stall  the "before" of the UI-stall drill: draw events with the SwiftUI List that
 #            stalled the main thread (NW_EVENT_LIST=swiftui-list)
 #   --idle   no event load (the fixture emits nothing): idle CPU and memory
+#   --prefill N  start from a store already holding N events (written by nw-replay), so
+#            the launch cost of opening a full store is in the measurement
 #   --busy   allow a run when the 1-minute load average is 6 or more; the result says so
 #   --keep-trace DIR  copy the .trace bundle there (bundles are not committed: too large)
 # The window opens without taking focus. Results: perf/results/app/.
@@ -27,6 +29,7 @@ stall=0
 idle=0
 busy_ok=0
 keep_trace=""
+prefill=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --seconds) seconds="$2"; shift 2 ;;
@@ -36,6 +39,7 @@ while [ $# -gt 0 ]; do
     --idle) idle=1; shift ;;
     --busy) busy_ok=1; shift ;;
     --keep-trace) keep_trace="$2"; shift 2 ;;
+    --prefill) prefill="$2"; shift 2 ;;
     *) echo "unknown argument $1" >&2; exit 2 ;;
   esac
 done
@@ -57,6 +61,7 @@ fi
 
 swift build -q -c release --product NativeWorkspace
 swift build -q -c release --product nw-fixture-server
+swift build -q -c release --product nw-replay
 bin="$(swift build -c release --show-bin-path)"
 work="$(mktemp -d /tmp/nw-measure.XXXXXX)"
 fixture_pid=""
@@ -66,6 +71,12 @@ cleanup() {
   rm -rf "$work"
 }
 trap cleanup EXIT
+
+if [ "$prefill" -gt 0 ]; then
+  "$bin/nw-replay" --events "$prefill" --store-dir "$work/store" --durability none \
+    --overload-every 0 --duplicate-every 0 --rate 1000000 > "$work/prefill.json" \
+    || { echo "measure: prefill failed" >&2; exit 1; }
+fi
 
 # The fixture's token: generated, environment only, never printed.
 export NW_FIXTURE_TOKEN="$(openssl rand -hex 32)"
@@ -121,7 +132,7 @@ commit="$(git rev-parse HEAD)"
 [ -n "$(git status --porcelain)" ] && commit="$commit+dirty"
 out="perf/results/app/measure-$label-$stamp-${commit:0:7}.json"
 if [ -f "$work/hangs.xml" ]; then cp "$work/hangs.xml" "${out%.json}.instruments-hangs.xml"; fi
-python3 -I - "$work" "$out" "$commit" "$machine_note" "$stall" "$idle" "$instruments" "$status" <<'EOF'
+NW_PREFILL="$prefill" python3 -I - "$work" "$out" "$commit" "$machine_note" "$stall" "$idle" "$instruments" "$status" <<'EOF'
 import json, os, re, subprocess, sys
 work, out, commit, note, stall, idle, instruments, status = sys.argv[1:9]
 def run(*cmd):
@@ -135,6 +146,7 @@ result = {
     "fixture": "20 monitors x 50 slots/s = 1,000 events/s, 10,000-event burst every 5 s"
     if idle == "0" else "20 monitors, no events",
     "event_list": "swiftui-list (the drill's before)" if stall == "1" else "table (AppKit)",
+    "prefilled_events": int(os.environ.get("NW_PREFILL", "0")),
     "commit": commit,
     "machine_note": note,
     "toolchain": run("xcodebuild", "-version").replace("\n", " "),

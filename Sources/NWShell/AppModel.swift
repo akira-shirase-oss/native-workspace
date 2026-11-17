@@ -106,6 +106,11 @@ public final class AppModel {
   /// Whether events are being recorded; shown in the window and on every
   /// service badge, never green while failed.
   public private(set) var recording = RecordingHealth.recording
+  /// True while the store opens and the first rows are prepared, off the
+  /// main actor; the window says "loading history".
+  public private(set) var loadingHistory = false
+  /// How long opening the store and preparing the first rows took.
+  public private(set) var historyLoadMilliseconds: Double?
 
   @ObservationIgnored private let credentials: any CredentialSource
   @ObservationIgnored private var queue: IngestQueue?
@@ -127,18 +132,41 @@ public final class AppModel {
     self.events = EventListModel(capacity: configuration.viewRows)
   }
 
-  public func start() {
+  /// Opens the store and prepares the first rows off the main actor — a
+  /// full store is tens of thousands of lines to decode and 10,000 rows to
+  /// format — then pairs the services. The main actor only assigns the
+  /// prepared rows.
+  public func start() async {
     guard !started else { return }
     started = true
+    loadingHistory = true
     let config = configuration
     let queue = IngestQueue(capacity: config.queueCapacity)
+    let clock = ContinuousClock()
+    let began = clock.now
+    let opened = await Task.detached(priority: .userInitiated) {
+      () -> Result<(EventStore, [EventRow]), StoreError> in
+      do throws(StoreError) {
+        let store = try EventStore(
+          .init(
+            directory: config.storeDirectory, retention: config.retention,
+            durability: config.durability))
+        return .success((store, store.recent(config.viewRows).map(EventRow.init)))
+      } catch {
+        return .failure(error)
+      }
+    }.value
+    loadingHistory = false
+    let elapsed = clock.now - began
+    historyLoadMilliseconds =
+      Double(elapsed.components.seconds) * 1000 + Double(elapsed.components.attoseconds) / 1e15
     let store: EventStore
-    do {
-      store = try EventStore(
-        .init(
-          directory: config.storeDirectory, retention: config.retention,
-          durability: config.durability))
-    } catch {
+    let previous: [EventRow]
+    switch opened {
+    case .success(let (opened, rows)):
+      store = opened
+      previous = rows
+    case .failure(let error):
       problem("Event store unavailable (\(error)); events are not being kept.")
       return
     }
@@ -157,8 +185,7 @@ public final class AppModel {
     }
     self.pump = pump
     pump.start()
-    // Rows already on disk come back into view at launch.
-    let previous = store.recent(config.viewRows).map(EventRow.init)
+    // Rows already on disk come back into view at launch (prepared above).
     events.apply(previous)
     refreshCounters()
 

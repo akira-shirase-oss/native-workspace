@@ -12,6 +12,9 @@ public final class MeasurementSession {
     public var seconds: Double
     public var eventList: String
     public var launchToFirstTaskMs: Double?
+    /// Opening the store and preparing the first rows (off the main actor).
+    public var historyLoadMs: Double?
+    public var rowsAtLaunch: Int?
     public var watchdog: MainThreadWatchdog.Report
     public var memory: MemoryProbe.Reading
     public var counters: Counters
@@ -48,8 +51,14 @@ public final class MeasurementSession {
     self.launchedAt = launchedAt
   }
 
+  private var rowsAfterLaunch: Int?
+
+  /// Start watching the main thread now (before the app's launch work).
+  public func begin() { watchdog.start() }
+
   public func run(firstTaskAt: Date?) async {
     watchdog.start()
+    rowsAfterLaunch = model.events.rows.count
     try? await Task.sleep(for: .seconds(seconds))
     let report = watchdog.stop()
     var usage = rusage()
@@ -61,6 +70,7 @@ public final class MeasurementSession {
     let full = Report(
       seconds: seconds, eventList: model.configuration.eventList.rawValue,
       launchToFirstTaskMs: firstTaskAt.map { $0.timeIntervalSince(launchedAt) * 1000 },
+      historyLoadMs: model.historyLoadMilliseconds, rowsAtLaunch: rowsAfterLaunch,
       watchdog: report, memory: MemoryProbe.read(),
       counters: .init(
         queue: counters.queue, store: counters.store, pump: counters.pump,

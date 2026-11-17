@@ -24,7 +24,7 @@ final class ServerIdentityTests: XCTestCase {
       "NW_STORE_DIR": store.path, "NW_POLL_INTERVAL_S": "0.2",
     ])
     let model = AppModel(configuration: config, credentials: credentials(shellToken))
-    model.start()
+    await model.start()
     try await Task.sleep(for: .seconds(1.5))
     XCTAssertEqual(impostor.recorded.filter(\.authorized).count, 0, "the token reached an impostor")
     XCTAssertEqual(impostor.requestCount, 0, "anything at all reached an impostor")

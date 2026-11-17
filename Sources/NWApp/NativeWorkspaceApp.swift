@@ -23,13 +23,17 @@ struct NativeWorkspaceApp: App {
       RootView(model: model)
         .frame(minWidth: 820, minHeight: 520)
         .task {
-          model.start()
-          if let seconds = model.configuration.measureSeconds {
-            let session = MeasurementSession(
+          // Measurement starts its watchdog before launch work, so the cost
+          // of opening a full store is inside the measured window.
+          let session = model.configuration.measureSeconds.map { seconds in
+            MeasurementSession(
               model: model, seconds: seconds, output: model.configuration.measureOutput,
               launchedAt: launchedAt)
-            await session.run(firstTaskAt: Date())
           }
+          session?.begin()
+          let firstTask = Date()
+          await model.start()
+          await session?.run(firstTaskAt: firstTask)
         }
     }
   }
