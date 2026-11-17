@@ -1,0 +1,77 @@
+{
+  "what": "Instruments (xctrace 27.2, Time Profiler + Hangs) attached for 15 s to the release app with the AppKit event table (the fix, D-026), 8 s after launch, same fixture load as the before trace (1,000 events/s, 10,000-event bursts every 5 s)",
+  "commit": "4d16592",
+  "machine": "Apple M2 Pro (Mac14,10), 12 cores, 32 GB, macOS 27.2.1; BUSY: 1-min load 92 at attach",
+  "potential_hangs_rows": 0,
+  "samples_all_threads": 1559,
+  "main_thread_samples": 383,
+  "main_thread_samples_containing": {
+    "EventListModel.apply": 30,
+    "EventTable": 23,
+    "reloadData": 12,
+    "OutlineListCoordinator.diffRows": 1
+  },
+  "top_leaf_frames_main_thread": [
+    {
+      "frame": "objc_msgSend",
+      "samples": 30
+    },
+    {
+      "frame": "__kdebug_trace64",
+      "samples": 10
+    },
+    {
+      "frame": "mach_msg2_trap",
+      "samples": 8
+    },
+    {
+      "frame": "<deduplicated_symbol>",
+      "samples": 7
+    },
+    {
+      "frame": "objc_release",
+      "samples": 5
+    },
+    {
+      "frame": "AG::Graph::UpdateStack::update()",
+      "samples": 5
+    },
+    {
+      "frame": "_kernelrpc_mach_port_extract_member_trap",
+      "samples": 5
+    },
+    {
+      "frame": "objc_autorelease",
+      "samples": 5
+    }
+  ],
+  "app_watchdog_30s": {
+    "hangThresholdMs": 250,
+    "hangs": 0,
+    "latencyMs": {
+      "count": 2766,
+      "max": 41.385292,
+      "mean": 0.15465765256688338,
+      "p50": 0.1,
+      "p95": 0.1,
+      "p99": 0.7000000000000001
+    },
+    "pings": 2766
+  },
+  "app_memory": {
+    "footprintBytes": 94258184,
+    "footprintPeakBytes": 94553096,
+    "residentBytes": 149422080
+  },
+  "app_cpu_seconds_30s": 3.452114,
+  "events_stored": 76631,
+  "rows_in_view": 10000,
+  "service": [
+    {
+      "freshness": "Live",
+      "id": "service-monitor",
+      "polls": 15
+    }
+  ],
+  "note": "The 15 MB trace bundle is not committed; its potential-hangs table is (empty)."
+}

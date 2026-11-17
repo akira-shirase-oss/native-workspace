@@ -19,7 +19,7 @@ smoke observation.
 
 | Step | Builds | Proves (gate) | Status |
 |---|---|---|---|
-| **N0 — spine and profiling literacy** (exploration) | `xcode-select` pointed at Xcode.app (a development Mac with Xcode exists; it currently points at the command-line tools); SwiftPM packages for the connection model, ingest and index; the replay fixture server; `scripts/check.sh` and a CI job on a GitHub-hosted macOS runner with a pinned Xcode: `swift format lint --strict`, `swift build`, `swift test`, the architecture checks below; the first load scenario: a headless package replay of 1,000,000 events through the bounded queue and index; the first failure drill: the connection state machine against a fixture server that is killed and restarted; the learning drill: reproduce a UI stall, locate it in Instruments, verify the fix | CI green on the first commit; the package replay commits throughput, drops, gap counts and peak memory, with gap counts equal to drops; `disconnect-restart` at package level passes (stale with timestamp, backoff, zero duplicate rows); before and after Instruments traces of the stall committed; Mac, macOS, Xcode and build recorded as the baseline | Planned — can start now |
+| **N0 — spine and profiling literacy** (exploration) | `xcode-select` pointed at Xcode.app (a development Mac with Xcode exists; it currently points at the command-line tools); SwiftPM packages for the connection model, ingest and index; the replay fixture server; `scripts/check.sh` and a CI job on a GitHub-hosted macOS runner with a pinned Xcode: `swift format lint --strict`, `swift build`, `swift test`, the architecture checks below; the first load scenario: a headless package replay of 1,000,000 events through the bounded queue and index; the first failure drill: the connection state machine against a fixture server that is killed and restarted; the learning drill: reproduce a UI stall, locate it in Instruments, verify the fix | CI green on the first commit; the package replay commits throughput, drops, gap counts and peak memory, with gap counts equal to drops; `disconnect-restart` at package level passes (stale with timestamp, backoff, zero duplicate rows); before and after Instruments traces of the stall committed; Mac, macOS, Xcode and build recorded as the baseline | **In progress** — CI, architecture checks, both drills and the profiling drill are in; the full 1,000,000-event replay is owed (see *N0 status*) |
 | **N1 — native shell** (exploration) | SwiftUI navigation, menus, shortcuts, accessibility baseline (VoiceOver labels, full keyboard navigation); pairing flow; Keychain this-device-only; App Sandbox with the network-client entitlement only and the hardened runtime (D-018); connect, disconnect, stale and revoked states | UI tests green; the shell passes the no-WebKit and no-process-spawning checks; **revocation half of failure case 4** (`revoked-credential`): first 401 → "authority revoked", polling stops, data kept and labeled stale, re-pair offered | Planned |
 | **N2 — read-only value** (exploration) | The Service Monitor adapter, `GET`-only (D-013), paired with a local instance under the development exception (D-015); bounded, searchable, redacted history; the text sanitizer (D-016) and redactor (D-017); select-a-failure detail view | **Failure case 1, stale half**, against the fixture and a real local restart; **failure case 2** in the running app under Instruments; search p95 over 10,000 UI queries against the 200 ms target; 1,000 events/s sustained; the **1,000,000-event run** through the app committed; `hostile-log-lines` and the secret-corpus redaction tests pass; a test proves the read-only adapter cannot build a non-`GET` request; startup time and idle CPU recorded | Planned |
 | **Promotion review** | The pre-registered comparison (D-012) | The promotion gate in `END_GOAL.md` — pass: promote to an active project; miss: stop, keep the evidence | Blocked (W-3) until N2's gate passes |
@@ -41,7 +41,30 @@ Run by `scripts/check.sh` in CI from the first commit:
 
 ### N0 status
 
-*Planned.* Updated as each slice lands, with the commit that proves it.
+**In progress, not Done** (2026-11-16). Every item names its test and its
+evidence; the machine was shared with other builds all session (1-minute
+load 16–94), so every number here is a development observation from a busy
+Mac (Apple M2 Pro, 12 cores, 32 GB, macOS 27.2.1, Xcode 27.2 / Swift 6.4.2).
+
+| Gate item | State | Proof |
+|---|---|---|
+| CI green on the first commit | **Done** | `.github/workflows/ci.yml` runs `scripts/check.sh` on `macos-26` with Xcode 26.6 pinned (checkout pinned by SHA, `contents: read`); green on `65564ea`, `64c10e4`, `f232c6a` and later pushes |
+| `swift format lint --strict`, `swift build`, `swift test` | **Done** | `scripts/check.sh` (warnings are errors); 75 XCTest cases, two of them stated skips (the Keychain round trip needs the entitled app, N1; the real-service drill runs only under its driver) |
+| Architecture checks (no WebKit, no process spawning, pure packages free of SwiftUI/AppKit, GET-only adapter) | **Done** | `scripts/arch-check.sh` (source rules, comment- and string-aware; plus `otool -L` on the built products); `scripts/test-arch-check.sh` plants 33 violations and proves each fails; `TransportTests` proves at run time that the only request built is a bodyless `GET` and the fixture server records only `GET` |
+| `disconnect-restart`, package level: stale with timestamp, backoff, zero duplicate rows | **Done** | `DisconnectRestartDrillTests` (100 random kill/restart points in CI; DRILL1000) and `FreshnessTests` (backoff 1 s → 30 s with jitter; never live after a failure; 2,000 random histories never label stale data live) |
+| `disconnect-restart` against the real services | **Done** (beyond the N0 gate) | `RealServiceDrillTests` via `scripts/drill-real-services.sh`: scratch Service Monitor `659e468` and Durable Runner `3da25ef`, 5 SIGKILL/restart cycles on `f232c6a` — `perf/results/drills/real-disconnect-restart-20261117T020729Z-f232c6a.json` |
+| Package replay of 1,000,000 events: throughput, drops, gap counts = drops, peak memory | **Owed** (full run) | `nw-replay` and `scripts/replay.sh --full`, which refuses at load ≥ 6; load never fell below 16 this session. Smoke only: CI's 30,000-event run, and `perf/results/replay-smoke-busy-*-4d16592.json` (ledger exact: 35,000 offered = 33,000 admitted + 2,000 dropped; gap counts 2,000; 4,000 duplicates refused; 0 hangs; 28.7 MB peak) |
+| Learning drill: reproduce a UI stall, locate it in Instruments, verify the fix | **Done** | Reproduced (main-thread waits of 72.2 s and 78.6 s, 1.7–2.0 GB); located with `sample(1)` and Instruments (100% of main-thread samples in SwiftUI `List`'s diff, 78% building a hosting view per inserted row); fixed with an AppKit table (D-026); verified under the same load with the watchdog and Instruments (0 hangs, worst wait 41–62 ms, 83–95 MB) — `perf/results/app/README.md`. The trace bundles are summarized and their hang tables committed, not the 15–25 MB bundles. The maintainer may want to repeat it as the learning exercise it is meant to be: `scripts/measure-app.sh --stall` reproduces it |
+| Main thread never hangs ≥ 250 ms (measured) | **Observed** under fixture load | the app's watchdog and Instruments' Hangs table (above), and every replay's watchdog |
+| Mac, macOS, Xcode and build recorded | **Done** | in every result file |
+| `xcode-select` pointed at Xcode.app | **Not done — maintainer** | needs `sudo`; every script sets `DEVELOPER_DIR` instead, which CI does too |
+
+Also in N0, ahead of later gates: the bounded store acknowledges only
+synced batches and survives reopen (`EventStoreTests`, both drills); the
+first 401 stops polling and keeps data visible as stale (`ServiceConnectionTests`
+— the package half of N1's revocation case); untrusted text renders inert
+(`InertTextTests`, `fixtures/hostile-log-lines.json` — D-016); tokens
+cannot be printed (`SecretTokenTests`).
 
 ## Later extensions (explicit contracts required)
 

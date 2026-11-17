@@ -1,0 +1,65 @@
+{
+  "what": "Instruments (xctrace 27.2, Time Profiler + Hangs) attached for 15 s to the release app drawing events with the SwiftUI List (NW_EVENT_LIST=swiftui-list), 12 s after launch, against nw-fixture-server (20 monitors, 1,000 events/s, 10,000-event bursts every 5 s)",
+  "commit": "4d16592 (the old list is reproduced behind its flag)",
+  "machine": "Apple M2 Pro (Mac14,10), 12 cores, 32 GB, macOS 27.2.1; BUSY: load average { 62.28 44.30 37.22 }",
+  "main_thread_samples": 15666,
+  "share_of_main_thread_samples_containing": {
+    "OutlineListCoordinator.diffRows": 1.0,
+    "NSHostingView.viewWillMove(toWindow:)": 0.7765,
+    "_doAutomaticRowHeightsForInsertedAndVisibleRows": 0.0984,
+    "addObserver:forKeyPath": 0.035,
+    "_copyByAddingObservance": 0.0186
+  },
+  "top_leaf_frames_main_thread": [
+    {
+      "frame": "_CFXNotificationRegistrarRemoveObservers",
+      "samples": 5706
+    },
+    {
+      "frame": "NSKeyValueShareableObservationInfoNSHTHash",
+      "samples": 4298
+    },
+    {
+      "frame": "_malloc_zone_malloc",
+      "samples": 985
+    },
+    {
+      "frame": "objc_retain",
+      "samples": 697
+    },
+    {
+      "frame": "objc_release",
+      "samples": 404
+    },
+    {
+      "frame": "NSViewPerformBlockWithDescendants",
+      "samples": 232
+    },
+    {
+      "frame": "-[NSKeyValueObservationInfo _initWithObservances:count:hashValue:]",
+      "samples": 161
+    },
+    {
+      "frame": "_NSKeyValueObservationInfoCreateByRemoving",
+      "samples": 158
+    },
+    {
+      "frame": "_platform_memmove",
+      "samples": 129
+    },
+    {
+      "frame": "_xzm_free_tc",
+      "samples": 121
+    },
+    {
+      "frame": "-[__NSArrayI dealloc]",
+      "samples": 121
+    },
+    {
+      "frame": "objc_msgSend",
+      "samples": 88
+    }
+  ],
+  "potential_hangs_rows": 0,
+  "note": "The Hangs table is empty because the hang was still in progress when the 15 s recording ended (Hangs reports finished intervals); the app's own watchdog measured the same stall at 72-79 s in earlier runs. The 25 MB trace bundle is not committed."
+}

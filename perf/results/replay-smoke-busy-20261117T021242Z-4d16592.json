@@ -1,0 +1,93 @@
+{
+  "build" : "release",
+  "commit" : "4d16592cc0437f7dab0a7da77c942130475538bd",
+  "config" : {
+    "burst" : 2000,
+    "duplicate_every" : 2,
+    "durability" : "fullFsync",
+    "events" : 30000,
+    "offered_rate_per_s" : 40000,
+    "overload_every" : 5,
+    "queue_capacity" : 10000,
+    "segment_events" : 10000,
+    "store_retention" : 50000,
+    "ui_batch_interval_ms" : 100,
+    "view_rows" : 10000
+  },
+  "date" : "2026-11-17T02:12:43Z",
+  "failures" : [
+
+  ],
+  "latency_offer_to_visible_ms" : {
+    "count" : 29000,
+    "max" : 519.4779634475708,
+    "mean" : 285.39491932967616,
+    "p50" : 320.40000000000003,
+    "p95" : 519.5,
+    "p99" : 519.5
+  },
+  "ledger" : {
+    "acknowledged_events" : 29000,
+    "admitted" : 33000,
+    "dropped" : 2000,
+    "duplicates_refused" : 4000,
+    "gap_count_sum" : 2000,
+    "gap_markers" : 1,
+    "max_queue_depth" : 10000,
+    "offered_including_duplicates" : 35000,
+    "rows_in_view" : 10000,
+    "store_batches" : 6,
+    "store_evicted" : 0,
+    "store_retained_at_end" : 29001,
+    "unique_events_sent" : 30000
+  },
+  "machine" : {
+    "cores" : 12,
+    "cpu" : "Apple M2 Pro",
+    "load_average_at_end" : [
+      32.83935546875,
+      32.96923828125,
+      32.74267578125
+    ],
+    "load_average_at_start" : [
+      32.83935546875,
+      32.96923828125,
+      32.74267578125
+    ],
+    "macos" : "Version 27.2.1 (Build 26B131)",
+    "memory_bytes" : 34359738368,
+    "model" : "Mac14,10"
+  },
+  "main_actor_apply_ms" : {
+    "count" : 6,
+    "max" : 2.1466669999999999,
+    "mean" : 1.4243613333333334,
+    "p50" : 1.4000000000000001,
+    "p95" : 2.2000000000000002,
+    "p99" : 2.2000000000000002
+  },
+  "main_thread" : {
+    "hangs_ge_250ms" : 0,
+    "pings" : 110,
+    "stall_ms" : {
+      "count" : 110,
+      "max" : 2.6954159999999998,
+      "mean" : 0.14934359999999994,
+      "p50" : 0.10000000000000001,
+      "p95" : 0.80000000000000004,
+      "p99" : 1.7000000000000002
+    }
+  },
+  "memory_peak" : {
+    "footprint_bytes" : 28721656,
+    "kernel_footprint_peak_bytes" : 28721656,
+    "resident_bytes" : 34897920
+  },
+  "note" : "BUSY machine (1-min load 32.39): release-build smoke (30,000 events), not the owed 1,000,000-event run",
+  "pass" : true,
+  "scenario" : "headless package replay (store + view model)",
+  "smoke" : true,
+  "throughput_acknowledged_per_s" : 22569.567989778319,
+  "toolchain" : "Xcode 27.2 Build version 27B52 ; swift-driver version: 1.168.6 Apple Swift version 6.4.2 (swiftlang-6.4.2.1.9 clang-2100.4.1.1)",
+  "wall_seconds" : 1.2849160432815552
+}

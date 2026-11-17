@@ -217,13 +217,14 @@ starting values; changing one needs a measurement and a new entry.
   The first shell drew the bounded history with a SwiftUI `List`. Under the
   fixture load (1,000 events/s plus 10,000-event bursts) one main-thread wait
   lasted 72.2 s, then 78.6 s in a second run, with a footprint peak of
-  1.7–2.0 GB. `sample(1)` put every main-thread sample in SwiftUI's
-  `OutlineListCoordinator.diffRows` → `NSTableView endUpdates` →
-  automatic row heights for *inserted* rows: a hosting view per inserted row,
-  each adding a window KVO observer whose cost grows with the ones before it —
-  quadratic in a batch. Now an `NSTableView` with fixed row heights and
-  `reloadData` builds only visible rows: same load, 0 hangs, worst wait
-  61.6 ms, peak 83 MB (`perf/results/app/README.md`). Given up: a pure
+  1.7–2.0 GB. `sample(1)` and then Instruments put every main-thread sample
+  in SwiftUI's `OutlineListCoordinator.diffRows`, 78% of them in
+  `NSHostingView.viewWillMove(toWindow:)`: the `List` builds and attaches a
+  hosting view for every *inserted* row, visible or not, and the leaf time
+  (observer removal, KVO bookkeeping) grows with the observers already on the
+  window. Now an `NSTableView` with fixed row heights and `reloadData` builds
+  only visible rows: same load, 0 hangs (watchdog and Instruments), worst
+  wait 41–62 ms, peak 83–95 MB (`perf/results/app/README.md`). Given up: a pure
   SwiftUI list and multi-line rows in the list (a detail view shows a full
   line, N2). The old list stays behind `NW_EVENT_LIST=swiftui-list` so the
   profiling drill can be reproduced.

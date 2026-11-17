@@ -1,10 +1,13 @@
 # Native Developer Workspace
 
-> **Status — optional.** The guide marks this an OPTIONAL CONCEPT. A
-> time-boxed, read-only exploration (N0–N2) may start now; it is not a
-> product commitment and must not slow the active products. The concept
-> becomes an active project only if the promotion gate after N2 passes
-> (D-011). If it never passes, the project honestly stays a concept.
+> **Status — optional; exploration N0 in progress (2026-11-16).** The guide
+> marks this an OPTIONAL CONCEPT. A time-boxed, read-only exploration
+> (N0–N2) is under way; it is not a product commitment and must not slow the
+> active products. The concept becomes an active project only if the
+> promotion gate after N2 passes (D-011). If it never passes, the project
+> honestly stays a concept. N0's code, CI and drills exist; its gate is not
+> yet passed — the 1,000,000-event full replay is owed until this Mac is
+> quiet enough to run it (`docs/ROADMAP.md` §N0 status).
 
 A macOS-native workbench for the portfolio's own services — Service
 Monitor first, later the durable workflow runner, JavaScript-runtime
@@ -16,6 +19,27 @@ SwiftUI with AppKit where appropriate; the Rust services stay
 authoritative — the desktop is a client, never a bypass, and the service's
 token scope, not the app, is the security boundary. Read-only first; the
 single permitted reversible action arrives only after promotion.
+
+## Build, test, run (exploration)
+
+macOS 26 or later with Xcode (this Mac: Xcode 27.2; CI: Xcode 26.6 on
+`macos-26`). `xcode-select` here points at the Command Line Tools, so the
+scripts set `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`.
+
+```bash
+scripts/check.sh                    # what CI runs: format lint, architecture checks
+                                    # and their self-test, build, tests, replay smoke
+scripts/replay.sh --full            # 1,000,000-event headless replay (needs load < 6)
+scripts/drill-real-services.sh      # SIGKILL/restart drill against scratch Service
+                                    # Monitor + Durable Runner built from their main
+scripts/measure-app.sh --busy       # the app under fixture load, main-thread watchdog
+```
+
+The app is an unsigned SwiftPM executable for now (N1 brings the Xcode
+project, signing, App Sandbox and the entitled Keychain). It pairs from the
+environment under the development exception (D-015): `NW_SMON_URL` (loopback
+only) with `NW_SMON_TOKEN`, and/or `NW_DURABLE_URL` (open reads, no
+credential). It only ever sends `GET`.
 
 ## Blocked on
 
