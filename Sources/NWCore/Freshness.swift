@@ -9,7 +9,7 @@ public enum Freshness: Sendable, Equatable {
   case live(asOf: Date)
   /// Not current. `since` is when it stopped being current; `lastGood` is
   /// the time the data on screen is from (`nil`: nothing was ever received).
-  case stale(since: Date, lastGood: Date?, reason: String)
+  case stale(since: Date, lastGood: Date?, reason: InertString)
   /// The service refused the credential (401). Polling has stopped; data on
   /// screen is from `lastGood`; renewed authority (re-pairing) is required.
   case revoked(at: Date, lastGood: Date?)
@@ -140,14 +140,15 @@ public struct ConnectionTracker: Sendable, Equatable {
       } else {
         since = failedAt
       }
-      return .stale(since: since, lastGood: lastGood, reason: lastFailure?.summary ?? "failed")
+      return .stale(
+        since: since, lastGood: lastGood, reason: InertString(lastFailure?.summary ?? "failed"))
     }
     guard let lastGood else { return .connecting }
     let expiry = lastGood.addingTimeInterval(threshold)
     if now > expiry {
       return .stale(
         since: expiry, lastGood: lastGood,
-        reason: "no answer for \(Int((now.timeIntervalSince(lastGood)).rounded())) s")
+        reason: InertString("no answer for \(Int((now.timeIntervalSince(lastGood)).rounded())) s"))
     }
     return .live(asOf: lastGood)
   }

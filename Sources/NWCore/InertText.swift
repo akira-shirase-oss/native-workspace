@@ -80,3 +80,19 @@ public enum InertText {
     return true
   }
 }
+
+/// Text from a service, already made inert and bounded. The only way to
+/// build one is from untrusted text through `InertText`, so a view that is
+/// handed an `InertString` cannot show a raw service string by accident.
+public struct InertString: Sendable, Hashable, Codable, CustomStringConvertible {
+  public let value: String
+
+  /// - Parameter maxScalars: the rendering's length cap (the cut is stated).
+  public init(_ untrusted: String, maxScalars: Int = 256) {
+    value = InertText.render(untrusted, multiline: false, maxScalars: maxScalars)
+  }
+
+  public var description: String { value }
+
+  public static let empty = InertString("")
+}

@@ -182,8 +182,18 @@ public final class ServiceMonitorAdapter: ServiceAdapter {
       verdict += " (monitoring \(monitoring.status))"
     }
     let items = monitors.map { monitor -> ItemStatus in
-      let state: ItemState =
-        monitor.paused ? .paused : (ItemState(rawValue: monitor.status) ?? .unknown)
+      // Only the service's own three states are read from the wire; the
+      // app-internal `paused`/`info` come from typed fields, never a string.
+      let state: ItemState
+      if monitor.paused {
+        state = .paused
+      } else {
+        switch monitor.status {
+        case "up": state = .up
+        case "down": state = .down
+        default: state = .unknown
+        }
+      }
       return ItemStatus(
         id: monitor.id, name: monitor.name, state: state,
         detail: "\(monitor.url) every \(monitor.interval_s) s")

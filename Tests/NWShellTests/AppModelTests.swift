@@ -98,14 +98,14 @@ final class AppModelTests: XCTestCase {
     let remote = AppModel(configuration: config, credentials: credentials(shellToken))
     remote.start()
     XCTAssertEqual(remote.services.count, 0)
-    XCTAssertTrue(remote.problems.first?.contains("loopback") ?? false, "\(remote.problems)")
+    XCTAssertTrue(remote.problems.first?.value.contains("loopback") ?? false, "\(remote.problems)")
 
     config.serviceMonitorURL = URL(string: "http://127.0.0.1:60499")
     let tokenless = AppModel(configuration: config, credentials: credentials(nil))
     tokenless.start()
-    XCTAssertTrue(tokenless.problems.first?.contains("no token") ?? false)
+    XCTAssertTrue(tokenless.problems.first?.value.contains("no token") ?? false)
     for problem in remote.problems + tokenless.problems {
-      XCTAssertFalse(problem.contains(shellToken))
+      XCTAssertFalse(problem.value.contains(shellToken))
     }
   }
 

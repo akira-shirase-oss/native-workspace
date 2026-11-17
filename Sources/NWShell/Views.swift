@@ -23,7 +23,7 @@ public struct RootView: View {
       VStack(alignment: .leading, spacing: 0) {
         ForEach(model.problems, id: \.self) { problem in
           Label {
-            Text(verbatim: problem)
+            Text(verbatim: problem.value)
           } icon: {
             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
           }
@@ -58,7 +58,7 @@ struct FreshnessBadge: View {
       } icon: {
         Image(systemName: Self.symbol(freshness)).foregroundStyle(Self.color(freshness))
       }
-      .accessibilityLabel(Text(verbatim: "\(service.name): \(freshness.label)"))
+      .accessibilityLabel(Text(verbatim: "\(service.name.value): \(freshness.label)"))
     }
   }
 
@@ -86,9 +86,9 @@ struct ServiceRow: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 2) {
-      Text(verbatim: service.name).font(.headline)
+      Text(verbatim: service.name.value).font(.headline)
       FreshnessBadge(service: service).font(.caption)
-      Text(verbatim: service.endpoint).font(.caption2).foregroundStyle(.secondary)
+      Text(verbatim: service.endpoint.value).font(.caption2).foregroundStyle(.secondary)
     }
     .padding(.vertical, 2)
   }
@@ -102,7 +102,7 @@ struct ServiceStatusView: View {
       let freshness = service.freshness(now: context.date)
       VStack(alignment: .leading, spacing: 6) {
         HStack {
-          Text(verbatim: service.name).font(.title2.bold())
+          Text(verbatim: service.name.value).font(.title2.bold())
           Spacer()
           FreshnessBadge(service: service)
         }
@@ -115,19 +115,22 @@ struct ServiceStatusView: View {
             .foregroundStyle(.red)
         }
         if let snapshot = service.snapshot {
-          let verdict = freshness.isLive ? snapshot.verdict : "\(snapshot.verdict) (stale)"
-          Text(verbatim: "Service says: \(verdict)" + (snapshot.version.map { " · \($0)" } ?? ""))
-            .foregroundStyle(.secondary)
+          let verdict = snapshot.verdict.value + (freshness.isLive ? "" : " (stale)")
+          Text(
+            verbatim: "Service says: \(verdict)"
+              + (snapshot.version.map { " · \($0.value)" } ?? "")
+          )
+          .foregroundStyle(.secondary)
           ScrollView {
             LazyVStack(alignment: .leading, spacing: 2) {
               ForEach(snapshot.items) { item in
                 let display = item.display(freshness)
                 HStack {
                   Circle().fill(Self.color(display.tone)).frame(width: 8, height: 8)
-                  Text(verbatim: InertText.render(item.name)).bold()
+                  Text(verbatim: item.name.value).bold()
                   Text(verbatim: display.label).foregroundStyle(.secondary)
                   Spacer()
-                  Text(verbatim: InertText.render(item.detail))
+                  Text(verbatim: item.detail.value)
                     .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
                 .accessibilityElement(children: .combine)
@@ -143,9 +146,9 @@ struct ServiceStatusView: View {
     }
   }
 
-  static func staleLine(lastGood: Date?, reason: String) -> String {
+  static func staleLine(lastGood: Date?, reason: InertString) -> String {
     let data = lastGood.map { "Showing data from \(Freshness.clock($0))" } ?? "No data received"
-    return "\(data) — \(InertText.render(reason))."
+    return "\(data) — \(reason.value)."
   }
 
   static func color(_ tone: Tone) -> Color {

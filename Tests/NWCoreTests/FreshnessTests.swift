@@ -31,7 +31,7 @@ final class FreshnessTests: XCTestCase {
     }
     XCTAssertEqual(since, t0.addingTimeInterval(1))
     XCTAssertEqual(lastGood, t0)
-    XCTAssertTrue(reason.contains("refused"))
+    XCTAssertTrue(reason.value.contains("refused"))
     XCTAssertFalse(state.isLive)
   }
 
@@ -107,7 +107,7 @@ final class FreshnessTests: XCTestCase {
   func testStaleItemsAreNeverDrawnGreen() {
     let item = ItemStatus(id: "m", name: "api", state: .up, detail: "")
     XCTAssertEqual(item.display(.live(asOf: t0)).tone, .good)
-    let stale = Freshness.stale(since: t0, lastGood: t0, reason: "x")
+    let stale = Freshness.stale(since: t0, lastGood: t0, reason: InertString("x"))
     for freshness in [stale, .revoked(at: t0, lastGood: t0), .connecting] {
       for state in [ItemState.up, .down, .unknown, .paused, .info] {
         let display = ItemStatus(id: "m", name: "api", state: state, detail: "d").display(freshness)

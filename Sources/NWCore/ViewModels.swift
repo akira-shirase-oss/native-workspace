@@ -89,22 +89,28 @@ public final class EventListModel {
   }
 }
 
-/// Service-reported status, as of the poll that produced it.
+/// Service-reported status, as of the poll that produced it. Every string
+/// in it came from the service, so every string is an `InertString` (D-016):
+/// built once, here, through `InertText`, with a length cap.
 public struct ServiceSnapshot: Sendable, Equatable {
   /// The service's own readiness words (for example `ready`, `degraded`).
-  public var verdict: String
+  public var verdict: InertString
   /// `true` ready, `false` not ready, `nil` the service did not say.
   public var verdictOK: Bool?
-  public var version: String?
+  public var version: InertString?
   public var items: [ItemStatus]
   public var asOf: Date
 
+  public static let verdictCap = 512
+  public static let versionCap = 128
+
+  /// - Parameters: `verdict` and `version` are untrusted service text.
   public init(
     verdict: String, verdictOK: Bool?, version: String? = nil, items: [ItemStatus], asOf: Date
   ) {
-    self.verdict = verdict
+    self.verdict = InertString(verdict, maxScalars: Self.verdictCap)
     self.verdictOK = verdictOK
-    self.version = version
+    self.version = version.map { InertString($0, maxScalars: Self.versionCap) }
     self.items = items
     self.asOf = asOf
   }
@@ -115,16 +121,20 @@ public enum ItemState: String, Sendable, Equatable, Codable {
 }
 
 public struct ItemStatus: Sendable, Equatable, Identifiable {
-  public var id: String
-  public var name: String
+  public var id: InertString
+  public var name: InertString
   public var state: ItemState
-  public var detail: String
+  public var detail: InertString
 
+  public static let nameCap = 256
+  public static let detailCap = 512
+
+  /// All three strings are untrusted service text.
   public init(id: String, name: String, state: ItemState, detail: String) {
-    self.id = id
-    self.name = name
+    self.id = InertString(id, maxScalars: Self.nameCap)
+    self.name = InertString(name, maxScalars: Self.nameCap)
     self.state = state
-    self.detail = detail
+    self.detail = InertString(detail, maxScalars: Self.detailCap)
   }
 }
 
@@ -158,7 +168,7 @@ extension ItemStatus {
     case .down: return DisplayState(label: "down", tone: .bad)
     case .unknown: return DisplayState(label: "unknown", tone: .warning)
     case .paused: return DisplayState(label: "paused", tone: .neutral)
-    case .info: return DisplayState(label: detail, tone: .neutral)
+    case .info: return DisplayState(label: detail.value, tone: .neutral)
     }
   }
 }
@@ -170,16 +180,16 @@ extension ItemStatus {
 @Observable
 public final class ServiceStatusModel: Identifiable {
   public let id: ServiceID
-  public let name: String
-  public let endpoint: String
+  public let name: InertString
+  public let endpoint: InertString
   public private(set) var tracker: ConnectionTracker
   public private(set) var snapshot: ServiceSnapshot?
   public private(set) var polls: UInt64 = 0
 
   public init(id: ServiceID, name: String, endpoint: String, tracker: ConnectionTracker) {
     self.id = id
-    self.name = name
-    self.endpoint = endpoint
+    self.name = InertString(name)
+    self.endpoint = InertString(endpoint, maxScalars: 512)
     self.tracker = tracker
   }
 

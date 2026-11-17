@@ -91,7 +91,8 @@ public final class AppModel {
   public private(set) var services: [ServiceStatusModel] = []
   public let events: EventListModel
   /// Pairing or storage problems, shown in the window — never only logged.
-  public private(set) var problems: [String] = []
+  /// Inert: they quote URLs and errors that can carry service text.
+  public private(set) var problems: [InertString] = []
   public private(set) var counters = IngestCounters()
   public private(set) var started = false
 
@@ -127,7 +128,7 @@ public final class AppModel {
           directory: config.storeDirectory, retention: config.retention,
           durability: config.durability))
     } catch {
-      problems.append("Event store unavailable (\(error)); events are not being kept.")
+      problem("Event store unavailable (\(error)); events are not being kept.")
       return
     }
     self.queue = queue
@@ -151,7 +152,7 @@ public final class AppModel {
       do {
         let token = try credentials.token(account: ServiceID.serviceMonitor.rawValue)
         if token == nil {
-          problems.append("Service Monitor at \(url.absoluteString): no token paired.")
+          problem("Service Monitor at \(url.absoluteString): no token paired.")
         }
         var limits = ServiceMonitorAdapter.Limits()
         limits.checksPerMonitor = config.checksPerMonitor
@@ -159,18 +160,18 @@ public final class AppModel {
           try ServiceMonitorAdapter(
             endpoint: url, token: token, transport: transport, limits: limits))
       } catch {
-        problems.append("Service Monitor at \(url.absoluteString) refused: \(error)")
+        problem("Service Monitor at \(url.absoluteString) refused: \(error)")
       }
     }
     if let url = config.durableRunnerURL {
       do {
         adapters.append(try DurableRunnerAdapter(endpoint: url, transport: transport))
       } catch {
-        problems.append("Durable Runner at \(url.absoluteString) refused: \(error)")
+        problem("Durable Runner at \(url.absoluteString) refused: \(error)")
       }
     }
     if adapters.isEmpty, problems.isEmpty {
-      problems.append(
+      problem(
         "No service paired. Set NW_SMON_URL (loopback) and NW_SMON_TOKEN, or NW_DURABLE_URL.")
     }
     for adapter in adapters {
@@ -209,6 +210,10 @@ public final class AppModel {
 
   public func storedIdentities() -> [EventIdentity] {
     store?.recent(Int.max).map(\.identity) ?? []
+  }
+
+  private func problem(_ text: String) {
+    problems.append(InertString(text, maxScalars: 512))
   }
 
   private func refreshCounters() {

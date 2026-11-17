@@ -31,9 +31,9 @@ final class ServiceMonitorAdapterTests: XCTestCase {
   func testAPollReadsStatusChecksAndIncidentsThroughGETOnly() async throws {
     let adapter = try adapter()
     let outcome = try await adapter.poll(observedAt: Date())
-    XCTAssertEqual(outcome.snapshot.verdict, "ready")
+    XCTAssertEqual(outcome.snapshot.verdict.value, "ready")
     XCTAssertEqual(outcome.snapshot.verdictOK, true)
-    XCTAssertEqual(outcome.snapshot.version, "fixture-0.1")
+    XCTAssertEqual(outcome.snapshot.version?.value, "fixture-0.1")
     XCTAssertEqual(outcome.snapshot.items.count, 3)
     let checks = outcome.events.filter { $0.kind == .check }
     XCTAssertEqual(checks.count, 3 * 50, "the first poll reads each monitor's newest 50")
@@ -104,7 +104,7 @@ final class ServiceMonitorAdapterTests: XCTestCase {
     emulator.setReady(false)
     let outcome = try await adapter().poll(observedAt: Date())
     XCTAssertEqual(outcome.snapshot.verdictOK, false)
-    XCTAssertTrue(outcome.snapshot.verdict.hasPrefix("unavailable"))
+    XCTAssertTrue(outcome.snapshot.verdict.value.hasPrefix("unavailable"))
   }
 
   func testAnAdminClassTokenIsRefusedForANonLoopbackEndpoint() throws {
@@ -145,7 +145,7 @@ final class DurableRunnerAdapterTests: XCTestCase {
     XCTAssertEqual(first.events.map(\.severity), [.ok, .info, .failure])
     XCTAssertEqual(
       first.events[0].occurredAt, Date(timeIntervalSince1970: 1_700_000_000))
-    XCTAssertEqual(first.snapshot.items.map(\.name), ["running", "failed", "done"])
+    XCTAssertEqual(first.snapshot.items.map(\.name.value), ["running", "failed", "done"])
 
     emulator.update(2, state: "done", finishedAt: 1_700_000_100_000)
     let second = try await adapter.poll(observedAt: Date())
