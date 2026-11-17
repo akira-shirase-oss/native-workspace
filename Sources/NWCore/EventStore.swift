@@ -12,6 +12,25 @@ public enum Durability: String, Sendable, Codable {
   case fullFsync
 }
 
+/// The sync system calls, injectable so tests can witness that an append
+/// is acknowledged only after its sync and that a failed sync fails it.
+/// Each returns 0 or an `errno`.
+public struct SyncCalls: Sendable {
+  public var fullFsync: @Sendable (Int32) -> Int32
+  public var fsync: @Sendable (Int32) -> Int32
+
+  public init(
+    fullFsync: @escaping @Sendable (Int32) -> Int32, fsync: @escaping @Sendable (Int32) -> Int32
+  ) {
+    self.fullFsync = fullFsync
+    self.fsync = fsync
+  }
+
+  public static let system = SyncCalls(
+    fullFsync: { fcntl($0, F_FULLFSYNC) == 0 ? 0 : errno },
+    fsync: { Darwin.fsync($0) == 0 ? 0 : errno })
+}
+
 public enum StoreError: Error, Equatable, Sendable {
   case io(String)
   case corrupt(String)
@@ -34,6 +53,9 @@ public struct StoreStats: Sendable, Equatable, Codable {
   public var loadedFromDisk: Int = 0
   public var segmentsOnDisk: Int = 0
   public var lastSeq: UInt64 = 0
+  /// Batches acknowledged after `fsync` because the file system does not
+  /// support `F_FULLFSYNC` (ENOTSUP-class): the durability actually reached.
+  public var fullSyncFallbacks: UInt64 = 0
 
   public init() {}
 }
@@ -68,15 +90,17 @@ public final class EventStore: Sendable {
     public var retention: Int
     public var segmentEvents: Int
     public var durability: Durability
+    public var syncCalls: SyncCalls
 
     public init(
       directory: URL?, retention: Int = 50_000, segmentEvents: Int = 10_000,
-      durability: Durability = .fullFsync
+      durability: Durability = .fullFsync, syncCalls: SyncCalls = .system
     ) {
       self.directory = directory
       self.retention = retention
       self.segmentEvents = segmentEvents
       self.durability = durability
+      self.syncCalls = syncCalls
     }
   }
 
@@ -319,7 +343,7 @@ private struct StoreState {
       }
       return true
     }
-    guard written, !injectWriteFailure, sync(fd, config.durability) else {
+    guard written, !injectWriteFailure, sync(fd, config, &stats) else {
       let failure = errno
       poisoned = true
       // Best effort: take the unacknowledged bytes back off the disk, so a
@@ -365,13 +389,26 @@ private struct StoreState {
     }
   }
 
-  private func sync(_ fd: Int32, _ durability: Durability) -> Bool {
-    switch durability {
+  /// A failed sync fails the batch; it is never retried, and never retried
+  /// weaker. The one exception: a file system that does not support
+  /// F_FULLFSYNC at all (ENOTSUP, EOPNOTSUPP, EINVAL, ENOTTY) gets fsync,
+  /// and the fallback is counted.
+  private func sync(_ fd: Int32, _ config: EventStore.Configuration, _ stats: inout StoreStats)
+    -> Bool
+  {
+    switch config.durability {
     case .none: return true
-    case .fsync: return fsync(fd) == 0
+    case .fsync: return config.syncCalls.fsync(fd) == 0
     case .fullFsync:
-      // Some file systems refuse F_FULLFSYNC; fsync is the honest fallback.
-      return fcntl(fd, F_FULLFSYNC) == 0 || fsync(fd) == 0
+      let failure = config.syncCalls.fullFsync(fd)
+      if failure == 0 { return true }
+      guard [ENOTSUP, EOPNOTSUPP, EINVAL, ENOTTY].contains(failure) else {
+        errno = failure
+        return false
+      }
+      guard config.syncCalls.fsync(fd) == 0 else { return false }
+      stats.fullSyncFallbacks += 1
+      return true
     }
   }
 
