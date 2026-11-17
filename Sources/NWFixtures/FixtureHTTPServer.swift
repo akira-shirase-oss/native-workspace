@@ -21,10 +21,12 @@ public struct FixtureResponse: Sendable {
   public var delay: TimeInterval
   public var hang: Bool
   public var declaredLength: Int?
+  /// Send the bytes but keep the connection open (a slow body).
+  public var keepOpen: Bool
 
   public init(
     status: Int, headers: [(String, String)] = [], body: Data = Data(), delay: TimeInterval = 0,
-    hang: Bool = false, declaredLength: Int? = nil
+    hang: Bool = false, declaredLength: Int? = nil, keepOpen: Bool = false
   ) {
     self.status = status
     self.headers = headers
@@ -32,6 +34,7 @@ public struct FixtureResponse: Sendable {
     self.delay = delay
     self.hang = hang
     self.declaredLength = declaredLength
+    self.keepOpen = keepOpen
   }
 
   public static func json(_ status: Int, _ object: Any) -> FixtureResponse {
@@ -243,10 +246,11 @@ public final class FixtureHTTPServer: Sendable {
     head += "Connection: close\r\n\r\n"
     var bytes = Data(head.utf8)
     bytes.append(response.body)
+    let keepOpen = response.keepOpen
     connection.send(
       content: bytes,
       completion: .contentProcessed { _ in
-        connection.cancel()
+        if !keepOpen { connection.cancel() }
       })
   }
 

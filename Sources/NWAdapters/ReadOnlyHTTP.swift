@@ -128,6 +128,12 @@ public final class BoundedURLSessionTransport: NSObject, ReadOnlyTransport, URLS
         try await withCheckedThrowingContinuation { continuation in
           tasks.withLock { $0[id] = Pending(continuation: continuation, origin: origin) }
           if Task.isCancelled { task.cancel() }
+          // URLSession's resource timeout is not a hard deadline (content
+          // sniffing and connection reuse can stretch it); this is.
+          DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + limits.deadline) {
+            [weak self] in
+            self?.expire(task)
+          }
           task.resume()
         }
       } onCancel: {
@@ -228,6 +234,17 @@ public final class BoundedURLSessionTransport: NSObject, ReadOnlyTransport, URLS
       return
     }
     entry.continuation.resume(returning: HTTPReply(status: entry.status, body: entry.body))
+  }
+
+  private func expire(_ task: URLSessionTask) {
+    let pending = tasks.withLock { pending -> Bool in
+      guard pending[task.taskIdentifier] != nil else { return false }
+      if pending[task.taskIdentifier]?.failure == nil {
+        pending[task.taskIdentifier]?.failure = .timeout
+      }
+      return true
+    }
+    if pending { task.cancel() }
   }
 
   private func fail(_ task: URLSessionTask, _ failure: TransportError) {

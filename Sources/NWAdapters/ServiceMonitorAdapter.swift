@@ -175,7 +175,10 @@ public final class ServiceMonitorAdapter: ServiceAdapter {
     if let faults = readiness.faults, !faults.isEmpty {
       verdict += ": " + faults.joined(separator: ", ")
     }
-    if let monitoring = list.monitoring, monitoring.status != readiness.status {
+    // `/readyz` says "ready" where the monitor list says "ok": the same verdict.
+    if let monitoring = list.monitoring, monitoring.status != "ok",
+      monitoring.status != readiness.status
+    {
       verdict += " (monitoring \(monitoring.status))"
     }
     let items = monitors.map { monitor -> ItemStatus in
