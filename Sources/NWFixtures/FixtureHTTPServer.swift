@@ -96,8 +96,31 @@ public final class FixtureHTTPServer: Sendable {
   public var requestCount: Int { state.withLock { $0.recordedTotal } }
   public var recorded: [RecordedRequest] { state.withLock { $0.recorded } }
 
+  /// Starts listening (again, after a `stop`). Bounded: a listener that
+  /// reports `waiting` (for example the port not yet released after a kill)
+  /// or no state at all is cancelled and retried every 50 ms until
+  /// `timeout`, then this throws — it never waits forever.
   @discardableResult
-  public func start() async throws -> UInt16 {
+  public func start(timeout: TimeInterval = 10) async throws -> UInt16 {
+    let deadline = Date().addingTimeInterval(timeout)
+    var last = "no attempt"
+    while Date() < deadline {
+      switch await attemptStart() {
+      case .ready(let port): return port
+      case .retry(let reason):
+        last = reason
+        try await Task.sleep(for: .milliseconds(50))
+      }
+    }
+    throw FixtureServerError.failed("not listening within \(timeout) s: \(last)")
+  }
+
+  private enum Attempt: Sendable {
+    case ready(UInt16)
+    case retry(String)
+  }
+
+  private func attemptStart() async -> Attempt {
     let (port, generation) = state.withLock { s -> (UInt16, Int) in
       s.generation += 1
       return (s.port, s.generation)
@@ -110,36 +133,45 @@ public final class FixtureHTTPServer: Sendable {
       listener = try NWListener(
         using: parameters, on: port == 0 ? .any : NWEndpoint.Port(rawValue: port)!)
     } catch {
-      throw FixtureServerError.failed("listener: \(error)")
+      return .retry("listener: \(error)")
     }
     listener.newConnectionHandler = { [weak self] connection in
       self?.accept(connection, generation: generation)
     }
-    let ready: UInt16 = try await withCheckedThrowingContinuation { continuation in
+    let attempt: Attempt = await withCheckedContinuation { continuation in
       let once = Mutex(false)
-      listener.stateUpdateHandler = { newState in
-        let resume: (Result<UInt16, Error>)? = {
-          switch newState {
-          case .ready: return .success(listener.port?.rawValue ?? 0)
-          case .failed(let error): return .failure(FixtureServerError.failed("\(error)"))
-          case .cancelled: return .failure(FixtureServerError.failed("cancelled before ready"))
-          default: return nil
-          }
-        }()
-        guard let resume else { return }
+      // Returns whether this call was the one that finished the attempt.
+      let finish: @Sendable (Attempt) -> Bool = { attempt in
         let first = once.withLock { done -> Bool in
           defer { done = true }
           return !done
         }
-        if first { continuation.resume(with: resume) }
+        if first { continuation.resume(returning: attempt) }
+        return first
+      }
+      listener.stateUpdateHandler = { newState in
+        switch newState {
+        case .ready: _ = finish(.ready(listener.port?.rawValue ?? 0))
+        case .waiting(let error):
+          if finish(.retry("waiting: \(error)")) { listener.cancel() }
+        case .failed(let error):
+          if finish(.retry("failed: \(error)")) { listener.cancel() }
+        case .cancelled: _ = finish(.retry("cancelled before ready"))
+        default: break
+        }
+      }
+      queue.asyncAfter(deadline: .now() + 2) {
+        // Only an attempt that has not finished is abandoned.
+        if finish(.retry("no listener state within 2 s")) { listener.cancel() }
       }
       listener.start(queue: queue)
     }
+    guard case .ready(let ready) = attempt else { return attempt }
     state.withLock { s in
       s.port = ready
       s.listener = listener
     }
-    return ready
+    return attempt
   }
 
   /// Kill: the listener and every open connection go away at once; a client
@@ -154,19 +186,23 @@ public final class FixtureHTTPServer: Sendable {
     }
     for connection in connections { connection.forceCancel() }
     guard let listener else { return }
+    // Bounded too: stop returns once the listener says cancelled, or after 5 s.
     await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
       let once = Mutex(false)
+      let finish: @Sendable () -> Void = {
+        let first = once.withLock { flag -> Bool in
+          defer { flag = true }
+          return !flag
+        }
+        if first { done.resume() }
+      }
       listener.stateUpdateHandler = { newState in
         switch newState {
-        case .cancelled, .failed:
-          let first = once.withLock { flag -> Bool in
-            defer { flag = true }
-            return !flag
-          }
-          if first { done.resume() }
+        case .cancelled, .failed: finish()
         default: break
         }
       }
+      queue.asyncAfter(deadline: .now() + 5) { finish() }
       listener.cancel()
     }
   }

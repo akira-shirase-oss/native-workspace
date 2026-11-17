@@ -184,3 +184,47 @@ final class TransportTests: XCTestCase {
     try await server.start()  // tearDown stops it again
   }
 }
+
+/// The fixture server itself must be bounded: a kill and an immediate
+/// restart on the same port, many times, never waits forever (the first
+/// 1,000-iteration drill hung on an unbounded wait here).
+final class FixtureServerTests: XCTestCase {
+  func testStartingOnAPortInUseFailsWithinItsTimeout() async throws {
+    let holder = FixtureHTTPServer { _ in .json(200, ["ok": true]) }
+    let port = try await holder.start()
+    let second = FixtureHTTPServer(port: port) { _ in .json(200, ["ok": true]) }
+    let started = Date()
+    do {
+      try await second.start(timeout: 1)
+      XCTFail("two listeners on one port")
+      await second.stop()
+    } catch {
+      XCTAssertLessThan(Date().timeIntervalSince(started), 4, "start must be bounded")
+    }
+    await holder.stop()
+  }
+
+  func testRapidKillAndRestartOnTheSamePortIsBounded() async throws {
+    let server = FixtureHTTPServer { _ in .json(200, ["ok": true]) }
+    let port = try await server.start()
+    let transport = BoundedURLSessionTransport()
+    let started = Date()
+    for i in 0..<200 {
+      await server.stop()
+      let again = try await server.start(timeout: 5)
+      XCTAssertEqual(again, port)
+      if i % 20 == 0 {
+        let reply = try await transport.get(
+          ReadOnlyRequest(url: server.baseURL.appendingPathComponent("/x"), token: nil))
+        XCTAssertEqual(reply.status, 200)
+      }
+    }
+    XCTAssertLessThan(Date().timeIntervalSince(started), 60)
+    // A started server stays up: nothing cancels it behind the caller's back.
+    try await Task.sleep(for: .seconds(2.5))
+    let reply = try await transport.get(
+      ReadOnlyRequest(url: server.baseURL.appendingPathComponent("/x"), token: nil))
+    XCTAssertEqual(reply.status, 200)
+    await server.stop()
+  }
+}
