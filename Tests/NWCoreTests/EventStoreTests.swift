@@ -80,7 +80,9 @@ final class EventStoreTests: XCTestCase {
       store.close()
     }
     let segment = try XCTUnwrap(
-      FileManager.default.contentsOfDirectory(atPath: directory.path).first)
+      FileManager.default.contentsOfDirectory(atPath: directory.path).first {
+        $0.hasPrefix("segment-")
+      })
     let handle = try FileHandle(forWritingTo: directory.appendingPathComponent(segment))
     try handle.seekToEnd()
     try handle.write(contentsOf: Data("{\"s\":4,\"v\":\"service-mon".utf8))  // cut mid-write
@@ -99,7 +101,9 @@ final class EventStoreTests: XCTestCase {
       store.close()
     }
     let segment = try XCTUnwrap(
-      FileManager.default.contentsOfDirectory(atPath: directory.path).first)
+      FileManager.default.contentsOfDirectory(atPath: directory.path).first {
+        $0.hasPrefix("segment-")
+      })
     let url = directory.appendingPathComponent(segment)
     var text = try String(contentsOf: url, encoding: .utf8)
     text = "not json\n" + text

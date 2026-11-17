@@ -251,16 +251,15 @@ public final class IngestPump: Sendable {
     let due = shared.withLock { s in !s.health.isRecording && ContinuousClock.now >= s.nextRecovery
     }
     guard due else { return false }
+    // The failed store lets go of the directory (and its lock) first.
+    shared.withLock { $0.store }.close()
     do {
       let fresh = try recovery.reopen()
-      let old = shared.withLock { s -> EventStore in
-        let old = s.store
+      shared.withLock { s in
         s.store = fresh
         s.health = .recording
         s.stats.recoveries += 1
-        return old
       }
-      old.close()
       return true
     } catch {
       shared.withLock { s in

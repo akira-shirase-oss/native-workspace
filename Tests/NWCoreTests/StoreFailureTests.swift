@@ -70,6 +70,7 @@ final class StoreFailureTests: XCTestCase {
     let storedKeys = await sink.stored.map(\.key)
     XCTAssertEqual(storedKeys, (16...20).map { "check:m:\($0)" })
     // What was stored after recovery is on disk, in a fresh segment.
+    pump.store.close()
     let reopened = try EventStore(config)
     XCTAssertTrue(reopened.contains(makeEvent(20).identity))
     XCTAssertFalse(reopened.contains(makeEvent(5).identity), "an unrecorded event is not on disk")

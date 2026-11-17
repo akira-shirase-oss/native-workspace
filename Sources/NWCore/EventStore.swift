@@ -34,6 +34,8 @@ public struct SyncCalls: Sendable {
 public enum StoreError: Error, Equatable, Sendable {
   case io(String)
   case corrupt(String)
+  /// Another store instance holds this directory (its lock file).
+  case locked(String)
   /// A write or sync failed earlier; the store refuses further appends
   /// rather than guess what reached the disk (a failed sync is never retried).
   case poisoned
@@ -212,6 +214,8 @@ private struct StoreState {
   var injectWriteFailure = false
   var segments: [Segment] = []
   var fd: Int32 = -1
+  /// The directory's lock (flock on `.lock`): one instance at a time.
+  var lockFD: Int32 = -1
   var directory: URL?
   let encoder: JSONEncoder = {
     let encoder = JSONEncoder()
@@ -273,6 +277,18 @@ private struct StoreState {
     } catch {
       throw StoreError.io("create \(directory.path): \(error.localizedDescription)")
     }
+    // Private to this user, also when the directory already existed.
+    guard chmod(directory.path, 0o700) == 0 else {
+      throw StoreError.io("make \(directory.path) private: errno \(errno)")
+    }
+    let lock = Darwin.open(
+      directory.appendingPathComponent(".lock").path, O_RDWR | O_CREAT | O_CLOEXEC, 0o600)
+    guard lock >= 0 else { throw StoreError.io("open the store lock: errno \(errno)") }
+    guard flock(lock, LOCK_EX | LOCK_NB) == 0 else {
+      Darwin.close(lock)
+      throw StoreError.locked("another instance has \(directory.path) open")
+    }
+    lockFD = lock
     let names: [String]
     do {
       names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
@@ -390,7 +406,7 @@ private struct StoreState {
   private mutating func roll(firstSeq: UInt64, config: EventStore.Configuration) throws(StoreError)
   {
     guard let directory else { return }
-    closeFile()
+    closeSegment()
     let name = String(format: "segment-%020llu.jsonl", firstSeq)
     let url = directory.appendingPathComponent(name)
     try openForAppend(url)
@@ -420,10 +436,21 @@ private struct StoreState {
     fd = descriptor
   }
 
+  mutating func closeSegment() {
+    if fd >= 0 {
+      Darwin.close(fd)
+      fd = -1
+    }
+  }
+
   mutating func closeFile() {
     if fd >= 0 {
       Darwin.close(fd)
       fd = -1
+    }
+    if lockFD >= 0 {
+      Darwin.close(lockFD)  // releases the flock
+      lockFD = -1
     }
   }
 
