@@ -106,11 +106,11 @@ public final class ServiceMonitorAdapter: ServiceAdapter {
 
   // MARK: requests
 
-  private func get(_ path: String, query: [URLQueryItem] = [], authorized: Bool)
+  private func get(_ path: [String], query: [URLQueryItem] = [], authorized: Bool)
     async throws(AdapterError) -> HTTPReply
   {
     let request = ReadOnlyRequest(
-      url: Wire.url(endpoint, path, query: query), token: authorized ? token : nil)
+      url: try Wire.url(endpoint, path, query: query), token: authorized ? token : nil)
     let reply: HTTPReply
     do {
       reply = try await transport.get(request)
@@ -123,23 +123,27 @@ public final class ServiceMonitorAdapter: ServiceAdapter {
 
   public func poll(observedAt: Date) async throws(AdapterError) -> PollOutcome {
     // Readiness is open (no token sent): 200 ready/degraded, 503 not observing.
-    let readyReply = try await get("/readyz", authorized: false)
+    let readyReply = try await get(["readyz"], authorized: false)
     guard readyReply.status == 200 || readyReply.status == 503 else {
       throw AdapterError.httpStatus(readyReply.status, Wire.errorCode(readyReply))
     }
     let readiness = try Wire.decode(Readiness.self, readyReply, what: "readyz")
 
-    let listReply = try await get("/api/monitors", authorized: true)
+    let listReply = try await get(["api", "monitors"], authorized: true)
     guard listReply.status == 200 else {
       throw AdapterError.httpStatus(listReply.status, Wire.errorCode(listReply))
     }
     let list = try Wire.decode(MonitorList.self, listReply, what: "monitors")
-    let monitors = Array(list.monitors.prefix(limits.maxMonitors))
+    // Service Monitor's ids are UUIDs. Anything else is not put in a URL —
+    // it is skipped and said, never sent (with the token) as a path.
+    let wellFormed = list.monitors.filter { UUID(uuidString: $0.id) != nil }
+    let invalidIDs = list.monitors.count - wellFormed.count
+    let monitors = Array(wellFormed.prefix(limits.maxMonitors))
 
     let version = try await currentVersion()
     let checks = try await fetchChecks(monitors)
     let incidentsReply = try await get(
-      "/api/incidents", query: [URLQueryItem(name: "limit", value: "\(limits.incidents)")],
+      ["api", "incidents"], query: [URLQueryItem(name: "limit", value: "\(limits.incidents)")],
       authorized: true)
     guard incidentsReply.status == 200 else {
       throw AdapterError.httpStatus(incidentsReply.status, Wire.errorCode(incidentsReply))
@@ -176,6 +180,9 @@ public final class ServiceMonitorAdapter: ServiceAdapter {
       verdict += ": " + faults.joined(separator: ", ")
     }
     // `/readyz` says "ready" where the monitor list says "ok": the same verdict.
+    if invalidIDs > 0 {
+      verdict += " · skipped \(invalidIDs) monitors with an invalid id"
+    }
     if let monitoring = list.monitoring, monitoring.status != "ok",
       monitoring.status != readiness.status
     {
@@ -205,7 +212,7 @@ public final class ServiceMonitorAdapter: ServiceAdapter {
 
   private func currentVersion() async throws(AdapterError) -> String? {
     if let known = cursor.withLock({ $0.version }) { return known }
-    let reply = try await get("/version", authorized: false)
+    let reply = try await get(["version"], authorized: false)
     guard reply.status == 200, let version = try? Wire.decode(Version.self, reply, what: "version")
     else { return nil }
     cursor.withLock { $0.version = version.version }
@@ -227,7 +234,7 @@ public final class ServiceMonitorAdapter: ServiceAdapter {
           next += 1
           group.addTask { [self] in
             let reply = try await get(
-              "/api/monitors/\(monitor.id)/checks",
+              ["api", "monitors", monitor.id, "checks"],
               query: [URLQueryItem(name: "limit", value: "\(limit)")], authorized: true)
             if reply.status == 404 { return (monitor.id, []) }  // deleted between reads
             guard reply.status == 200 else {

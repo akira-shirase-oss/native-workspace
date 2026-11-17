@@ -144,12 +144,32 @@ enum Wire {
     return Date(timeIntervalSince1970: seconds + fraction)
   }
 
-  static func url(_ base: URL, _ path: String, query: [URLQueryItem] = []) -> URL {
-    var components = URLComponents(url: base, resolvingAgainstBaseURL: false)!
-    let basePath =
-      components.path.hasSuffix("/") ? String(components.path.dropLast()) : components.path
-    components.percentEncodedPath = basePath + path
+  /// Characters a path segment keeps unencoded: RFC 3986 "unreserved".
+  static let segmentAllowed = CharacterSet(
+    charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
+
+  /// `base` + one percent-encoded segment per element. A segment can never
+  /// add a `/`, `?` or `#`, and empty, `.` and `..` segments are refused, so
+  /// service data cannot steer a request to another path. Never traps.
+  static func url(_ base: URL, _ segments: [String], query: [URLQueryItem] = [])
+    throws(AdapterError) -> URL
+  {
+    guard var components = URLComponents(url: base, resolvingAgainstBaseURL: false) else {
+      throw AdapterError.refusedEndpoint("unusable endpoint")
+    }
+    var path = components.percentEncodedPath
+    if path.hasSuffix("/") { path.removeLast() }
+    for segment in segments {
+      guard !segment.isEmpty, segment != ".", segment != "..",
+        let encoded = segment.addingPercentEncoding(withAllowedCharacters: segmentAllowed)
+      else { throw AdapterError.refusedEndpoint("refused a path segment from service data") }
+      path += "/" + encoded
+    }
+    components.percentEncodedPath = path
     components.queryItems = query.isEmpty ? nil : query
-    return components.url!
+    guard let url = components.url else {
+      throw AdapterError.refusedEndpoint("could not build a request URL")
+    }
+    return url
   }
 }

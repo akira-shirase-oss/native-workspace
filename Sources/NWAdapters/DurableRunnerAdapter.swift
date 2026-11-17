@@ -47,10 +47,10 @@ public final class DurableRunnerAdapter: ServiceAdapter {
     let runs: [Run]
   }
 
-  private func get(_ path: String, query: [URLQueryItem] = []) async throws(AdapterError)
+  private func get(_ path: [String], query: [URLQueryItem] = []) async throws(AdapterError)
     -> HTTPReply
   {
-    let request = ReadOnlyRequest(url: Wire.url(endpoint, path, query: query), token: nil)
+    let request = ReadOnlyRequest(url: try Wire.url(endpoint, path, query: query), token: nil)
     do {
       return try await transport.get(request)
     } catch {
@@ -59,13 +59,13 @@ public final class DurableRunnerAdapter: ServiceAdapter {
   }
 
   public func poll(observedAt: Date) async throws(AdapterError) -> PollOutcome {
-    let readyReply = try await get("/ready")
+    let readyReply = try await get(["ready"])
     guard readyReply.status == 200 || readyReply.status == 503 else {
       throw AdapterError.httpStatus(readyReply.status, Wire.errorCode(readyReply))
     }
     let ready = try Wire.decode(Ready.self, readyReply, what: "ready")
     let pageReply = try await get(
-      "/jobs",
+      ["jobs"],
       query: [
         URLQueryItem(name: "order", value: "desc"),
         URLQueryItem(name: "limit", value: "\(pageSize)"),
@@ -101,7 +101,7 @@ public final class DurableRunnerAdapter: ServiceAdapter {
 
   /// One run, for an inspection view.
   public func run(id runID: UInt64) async throws(AdapterError) -> Run? {
-    let reply = try await get("/jobs/\(runID)")
+    let reply = try await get(["jobs", String(runID)])
     if reply.status == 404 { return nil }
     guard reply.status == 200 else {
       throw AdapterError.httpStatus(reply.status, Wire.errorCode(reply))
