@@ -6,7 +6,9 @@ import SwiftUI
 ///
 /// `NSTableView` asks only for the rows on screen, and `reloadData` costs
 /// the visible rows, not the 10,000 behind them — the main actor's work per
-/// batch no longer grows with the history. (The profiling drill that found
+/// batch no longer grows with the history. A batch is applied as removals at
+/// the bottom and insertions at the top, so the selected event stays
+/// selected and a scrolled view keeps the rows being read. (The profiling drill that found
 /// the SwiftUI `List` version stalling the main thread is in
 /// `perf/results/app/README.md`; `NW_EVENT_LIST=swiftui-list` brings that
 /// version back to reproduce it.) Cells are plain-text `NSTextField`s set
@@ -17,6 +19,10 @@ struct EventTable: NSViewRepresentable {
   func makeCoordinator() -> Coordinator { Coordinator() }
 
   func makeNSView(context: Context) -> NSScrollView {
+    Self.makeScrollView(coordinator: context.coordinator)
+  }
+
+  static func makeScrollView(coordinator: Coordinator) -> NSScrollView {
     let table = NSTableView()
     table.style = .fullWidth
     table.usesAlternatingRowBackgroundColors = true
@@ -33,8 +39,8 @@ struct EventTable: NSViewRepresentable {
       column.resizingMask = id == "text" ? .autoresizingMask : .userResizingMask
       table.addTableColumn(column)
     }
-    table.dataSource = context.coordinator
-    table.delegate = context.coordinator
+    table.dataSource = coordinator
+    table.delegate = coordinator
     table.setAccessibilityLabel("Events, newest first")
     let scroll = NSScrollView()
     scroll.documentView = table
@@ -45,8 +51,8 @@ struct EventTable: NSViewRepresentable {
   }
 
   func updateNSView(_ scroll: NSScrollView, context: Context) {
-    context.coordinator.rows = rows
-    (scroll.documentView as? NSTableView)?.reloadData()
+    guard let table = scroll.documentView as? NSTableView else { return }
+    context.coordinator.update(table, to: rows)
   }
 
   @MainActor
@@ -61,6 +67,60 @@ struct EventTable: NSViewRepresentable {
     var rows: [EventRow] = []
 
     func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
+
+    /// Applies a new window of rows (oldest first) as row removals at the
+    /// bottom (the oldest left the window) and insertions at the top (the
+    /// newest arrived), so the table keeps the selected event selected and,
+    /// when the user has scrolled down, keeps the same events in view. Falls
+    /// back to a reload, still restoring the selection by event id, when the
+    /// new window is not a trim-and-append of the old one.
+    func update(_ table: NSTableView, to newRows: [EventRow]) {
+      let old = rows
+      guard !old.isEmpty, let firstNew = newRows.first,
+        let keptFrom = old.firstIndex(where: { $0.id == firstNew.id }),
+        old.count - keptFrom <= newRows.count,
+        zip(old[keptFrom...], newRows).allSatisfy({ $0.id == $1.id })
+      else {
+        reload(table, to: newRows)
+        return
+      }
+      let trimmed = keptFrom
+      let appended = newRows.count - (old.count - keptFrom)
+      guard trimmed > 0 || appended > 0 else {
+        rows = newRows
+        return
+      }
+      let scroll = table.enclosingScrollView
+      let rowStep = table.rowHeight + table.intercellSpacing.height
+      let origin = scroll?.contentView.bounds.origin ?? .zero
+      let inset = scroll?.contentView.contentInsets.top ?? 0
+      let following = origin.y + inset <= rowStep / 2  // at the top: follow the newest
+      table.beginUpdates()
+      rows = newRows
+      if trimmed > 0 {
+        table.removeRows(at: IndexSet((old.count - trimmed)..<old.count), withAnimation: [])
+      }
+      if appended > 0 { table.insertRows(at: IndexSet(0..<appended), withAnimation: []) }
+      table.endUpdates()
+      if !following, appended > 0, let scroll {
+        // Rows arrived above what the user is reading: move down with them.
+        let target = NSPoint(x: origin.x, y: origin.y + CGFloat(appended) * rowStep)
+        scroll.contentView.scroll(to: target)
+        scroll.reflectScrolledClipView(scroll.contentView)
+      }
+    }
+
+    private func reload(_ table: NSTableView, to newRows: [EventRow]) {
+      let selected =
+        table.selectedRow >= 0 && table.selectedRow < rows.count
+        ? rows[rows.count - 1 - table.selectedRow].id : nil
+      rows = newRows
+      table.reloadData()
+      if let selected, let index = rows.lastIndex(where: { $0.id == selected }) {
+        table.selectRowIndexes(
+          IndexSet(integer: rows.count - 1 - index), byExtendingSelection: false)
+      }
+    }
 
     func tableView(_ tableView: NSTableView, viewFor column: NSTableColumn?, row: Int) -> NSView? {
       guard let column, row < rows.count else { return nil }
