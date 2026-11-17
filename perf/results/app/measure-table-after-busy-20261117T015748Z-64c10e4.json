@@ -1,0 +1,25 @@
+{
+  "app_exit_status": 54,
+  "app_report": {
+    "error": "the app wrote no report: [Errno 2] No such file or directory: '/tmp/nw-measure.bON4wt/report.json'"
+  },
+  "commit": "64c10e43930f743e7cb15011db2526bd07a62188+dirty",
+  "event_list": "table (AppKit)",
+  "fixture": "20 monitors x 50 slots/s = 1,000 events/s, 10,000-event burst every 5 s",
+  "instruments": {
+    "exported_table": "measure-table-after-busy-20261117T015748Z-64c10e4.instruments-hangs.xml",
+    "hang_durations_ms": [],
+    "hang_rows": 0,
+    "hangs_ge_250ms": 0,
+    "template": "Time Profiler + Hangs"
+  },
+  "load_average_at_end": [
+    33.4873046875,
+    32.990234375,
+    41.015625
+  ],
+  "machine_note": "BUSY machine (1-min load 26.82 at start): development smoke observation",
+  "macos": "27.2.1",
+  "scenario": "running app, fixture load",
+  "toolchain": "Xcode 27.2 Build version 27B52"
+}

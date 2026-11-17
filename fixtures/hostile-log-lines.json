@@ -1,0 +1,25 @@
+{
+  "fixture": "hostile-log-lines",
+  "contract": "D-016: every line must render with no active character (escape, C0/C1 control, bidi override or isolate, invisible formatting); markup stays literal text",
+  "used_by": [
+    "Tests/NWCoreTests/InertTextTests.swift (same corpus in code)",
+    "Sources/NWFixtures/Emulators.swift (failing check details)"
+  ],
+  "lines": [
+    "\u001b[2J\u001b[H\u001b[32mALL SYSTEMS OK\u001b[0m",
+    "\u001b]8;;https://evil.example/\u0007click me\u001b]8;;\u0007",
+    "\u001b]0;fake window title\u0007",
+    "invoice\u202efdp.exe",
+    "admin\u2066\u2069 is fine",
+    "\u009b31mC1 CSI\u009b0m",
+    "zero\u200bwidth\ufeffjoiner\u200d",
+    "first line\nFORGED: second row looks like a new event",
+    "carriage\rreturn overwrite",
+    "**bold** [link](https://evil.example) <script>alert(1)</script> `code`",
+    "tag\udb40\udc41\udb40\udc42chars",
+    "back\\slash \\u{1B} literal",
+    "nul\u0000byte and bell\u0007",
+    "line\u2028separator\u2029",
+    "\u061carabic letter mark\u200e\u200f"
+  ]
+}

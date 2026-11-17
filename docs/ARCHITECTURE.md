@@ -1,7 +1,8 @@
 # Architecture
 
-Planned architecture — no code exists yet. Package names are placeholders
-fixed at N0.
+Architecture of the exploration. N0 (the spine) exists as code; the rows
+marked *after promotion* and the pieces named for N1/N2 are still plans.
+Names were fixed at N0 (see *Layout* below).
 
 ## Sources of truth
 
@@ -80,23 +81,46 @@ reconciled, matching how the services themselves treat external calls.
 The local index can lie by being behind; it can never lie by being ahead,
 and it is never authoritative.
 
-## Planned layout
+## Layout (fixed at N0)
+
+One SwiftPM package at the repository root (`Package.swift`, deployment
+target macOS 26, D-023). Pure logic is in library targets, so `swift test`
+covers it without an app bundle.
 
 ```
-app/             Xcode project: SwiftUI shell, AppKit pieces, UI tests
-packages/        SwiftPM packages — connection model, service adapters,
-                 sanitizer, redactor, ingest, local index, assistance,
-                 action pipeline (pure logic stays in SwiftPM so
-                 `swift test` covers it without the app)
-fixtures/        replay server and recorded service responses + event
-                 streams: burst-10k, disconnect-restart,
-                 disconnect-mid-action, unsafe-proposal,
-                 revoked-credential, hostile-log-lines, secret-corpus
-perf/            workload drivers, Instruments traces, results/
-                 (machine + OS + build + commit on every run)
-scripts/         check.sh (what CI runs), architecture checks
-docs/            this set; module docs added when code lands
+Sources/
+  NWCore/          pure: event model, InertText (D-016), bounded IngestQueue
+                   with gap markers (D-021), EventStore (bounded, segmented
+                   JSON Lines, acknowledged = synced), ConnectionTracker
+                   (freshness, backoff), main-actor view models, IngestPump,
+                   measurement helpers (watchdog, histogram, memory)
+  NWCredentials/   SecretToken (unprintable), Keychain (this device only)
+                   and process-environment sources
+  NWAdapters/      ReadOnlyHTTP.swift — the only place a URLRequest or
+                   URLSession exists: GET-only, deadline, size cap,
+                   same-origin redirects; Service Monitor and Durable
+                   Runner adapters; ServiceConnection (polling, backoff,
+                   stop on 401)
+  NWFixtures/      loopback fixture HTTP server (killable, records methods)
+                   and the services' read-API emulators — never linked
+                   into the app (architecture check)
+  NWShell/         SwiftUI shell + AppKit event table; AppModel wiring;
+                   measurement mode
+  NWApp/           the app executable (`NativeWorkspace`)
+  NWReplay/        `nw-replay`, the headless 1,000,000-event replay
+  NWFixtureServer/ `nw-fixture-server`, the local replay fixture server
+Tests/             XCTest per target, including both disconnect-restart
+                   drills (fixture server; real scratch services)
+fixtures/          hostile-log-lines and the fixture index
+perf/results/      replay, drill and app measurements (machine + commit)
+scripts/           check.sh (what CI runs), arch-check.sh and its self-test,
+                   replay.sh, drill-real-services.sh, measure-app.sh
+docs/              this set
 ```
+
+An Xcode app project (signing, App Sandbox, the entitled data-protection
+Keychain, UI tests) arrives in N1; until then the app is a SwiftPM
+executable, development-only and unsigned.
 
 ## Decisions and open questions
 

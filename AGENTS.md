@@ -5,8 +5,9 @@ services (Service Monitor first; later the durable workflow runner,
 JavaScript-runtime executions and Colophon release receipts). Contract: the
 engineering guide `10_Native_Developer_Workspace.docx` (marked OPTIONAL
 CONCEPT; kept in the maintainer's workspace under `docs/Project_Guides/`,
-not in this repository). No code exists yet — these rules bind the moment
-any is written, and they strengthen, never weaken, the workspace rules.
+not in this repository). N0 code exists (exploration only, see
+`docs/ROADMAP.md`); these rules bind it and everything after, and they
+strengthen, never weaken, the workspace rules.
 
 ## Read first
 
@@ -68,7 +69,7 @@ any is written, and they strengthen, never weaken, the workspace rules.
    load target. Misses are kept, never rerun until green. Numbers from
    this machine are development observations, never production capacity.
 
-## Platform rules (when code exists)
+## Platform rules
 
 - Swift structured concurrency and typed models for client logic; AppKit
   where SwiftUI is insufficient. Pure logic lives in SwiftPM packages so
@@ -92,6 +93,13 @@ revoked-credential, hostile-log-lines, secret-corpus), and a
 `perf/` workload scenario where a traffic unit exists. Every fixed bug
 gets a test that fails without it. UI stalls follow the guide's drill:
 reproduce, locate in Instruments, verify the fix, commit the traces.
+
+## Toolchain on this Mac
+
+`xcode-select` points at the Command Line Tools; prefix every Swift/Xcode
+command with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`
+(`scripts/check.sh` does). CI pins Xcode 26.6 on `macos-26`; nothing newer
+than the deployment target (macOS 26) may be used without `#available`.
 
 ## Verification gate (CI from the first N0 commit)
 

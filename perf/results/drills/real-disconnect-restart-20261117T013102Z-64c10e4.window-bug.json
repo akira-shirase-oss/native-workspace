@@ -1,0 +1,78 @@
+{
+  "acknowledged_by_service": {
+    "durable-runner": 5,
+    "service-monitor": 13
+  },
+  "acknowledged_events": 18,
+  "acknowledged_lost": 0,
+  "acknowledged_lost_after_reopen": 0,
+  "backoff": {
+    "base_s": 1,
+    "cap_s": 30,
+    "jitter": 0.2
+  },
+  "commit": "64c10e43930f743e7cb15011db2526bd07a62188+dirty",
+  "cycles": [
+    {
+      "acknowledged_before_kill": 9,
+      "cycle": 1,
+      "down_s": 5.4720001220703125,
+      "recovered": true,
+      "recovery_after_restart_s": 5.9687628746032715,
+      "stale_after_kill_s": {
+        "durable-runner": 0.16294503211975098,
+        "service-monitor": 0.16294503211975098
+      }
+    },
+    {
+      "acknowledged_before_kill": 12,
+      "cycle": 2,
+      "down_s": 9.961999893188477,
+      "recovered": true,
+      "recovery_after_restart_s": 2.5936191082000732,
+      "stale_after_kill_s": {
+        "durable-runner": 0.07637894153594971,
+        "service-monitor": 0.07637894153594971
+      }
+    },
+    {
+      "acknowledged_before_kill": 15,
+      "cycle": 3,
+      "down_s": 5.075999975204468,
+      "recovered": true,
+      "recovery_after_restart_s": 5.062333106994629,
+      "stale_after_kill_s": {
+        "durable-runner": 0.18577206134796143,
+        "service-monitor": 0.18577206134796143
+      }
+    }
+  ],
+  "drill": "disconnect-restart against real scratch services (SIGKILL + restart)",
+  "duplicate_rows": 0,
+  "duplicates_refused": 0,
+  "durable_runner_main": "ed29802fa5f4301a038ab1805452c03b8ca451aa",
+  "grace_s": 1,
+  "green_while_not_live_samples": 0,
+  "live_while_down_samples": 3,
+  "machine": {
+    "cores": 12,
+    "cpu": "Apple M2 Pro",
+    "load_average_at_end": [
+      118.4287109375,
+      74.75244140625,
+      54.69873046875
+    ],
+    "macos": "27.2.1",
+    "model": "Mac14,10"
+  },
+  "pass": false,
+  "poll_interval_s": 2,
+  "polls": {
+    "durable-runner": 25,
+    "service-monitor": 21
+  },
+  "service_monitor_main": "9c51ff1a14b35e1873e8d3840bd8f78f1e4e4c7d",
+  "stored_events": 18,
+  "test_exit_status": 1,
+  "toolchain": "Xcode 27.2 Build version 27B52"
+}

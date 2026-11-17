@@ -1,0 +1,95 @@
+{
+  "app_exit_status": 0,
+  "app_report": {
+    "counters": {
+      "droppedShownInGapRows": 0,
+      "pump": {
+        "batches": 0,
+        "duplicates": 0,
+        "flushes": 0,
+        "notStored": 0,
+        "stored": 0
+      },
+      "queue": {
+        "admitted": 0,
+        "depth": 0,
+        "dropped": 0,
+        "gapCountEmitted": 0,
+        "gapMarkers": 0,
+        "maxDepth": 0,
+        "offered": 0
+      },
+      "rowsInView": 0,
+      "rowsTrimmed": 0,
+      "store": {
+        "accepted": 0,
+        "duplicates": 0,
+        "evicted": 0,
+        "lastSeq": 0,
+        "loadedFromDisk": 0,
+        "retained": 0,
+        "segmentsOnDisk": 0
+      }
+    },
+    "cpuSeconds": 0.738819,
+    "launchToFirstTaskMs": 732.4690818786621,
+    "machine": {
+      "cores": 12,
+      "cpu": "Apple M2 Pro",
+      "loadAverage": [
+        55.29248046875,
+        49.53955078125,
+        50.57666015625
+      ],
+      "macOS": "Version 27.2.1 (Build 26B131)",
+      "memoryBytes": 34359738368,
+      "model": "Mac14,10"
+    },
+    "memory": {
+      "footprintBytes": 37471192,
+      "footprintPeakBytes": 37471192,
+      "residentBytes": 101744640
+    },
+    "seconds": 10,
+    "services": [
+      {
+        "freshness": "Unavailable \u2014 stale since 08:38:36",
+        "id": "service-monitor",
+        "polls": 3
+      }
+    ],
+    "stallDrill": false,
+    "watchdog": {
+      "hangThresholdMs": 250,
+      "hangs": 0,
+      "latencyMs": {
+        "count": 935,
+        "max": 12.423625,
+        "mean": 0.046416214973261885,
+        "p50": 0.1,
+        "p95": 0.1,
+        "p99": 0.1
+      },
+      "pings": 935
+    }
+  },
+  "commit": "64c10e43930f743e7cb15011db2526bd07a62188+dirty",
+  "fixture": "20 monitors x 50 slots/s = 1,000 events/s, 10,000-event burst every 5 s",
+  "instruments": {
+    "exported_table": "measure-stall-locate-busy-20261117T013949Z-64c10e4.instruments-hangs.xml",
+    "hang_durations_ms": [],
+    "hang_rows": 0,
+    "hangs_ge_250ms": 0,
+    "template": "Time Profiler + Hangs"
+  },
+  "load_average_at_end": [
+    51.45068359375,
+    49.11083984375,
+    50.31494140625
+  ],
+  "machine_note": "BUSY machine (1-min load 29.11 at start): development smoke observation",
+  "macos": "27.2.1",
+  "scenario": "running app, fixture load",
+  "stall_drill": false,
+  "toolchain": "Xcode 27.2 Build version 27B52"
+}

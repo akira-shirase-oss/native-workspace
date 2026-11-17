@@ -34,6 +34,8 @@ public struct StoreStats: Sendable, Equatable, Codable {
   public var loadedFromDisk: Int = 0
   public var segmentsOnDisk: Int = 0
   public var lastSeq: UInt64 = 0
+
+  public init() {}
 }
 
 public struct AppendResult: Sendable {

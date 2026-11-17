@@ -21,6 +21,8 @@ public struct PumpStats: Sendable, Equatable, Codable {
   /// and shown, never hidden (the store is then poisoned and says so).
   public var notStored: UInt64 = 0
   public var storeError: String?
+
+  public init() {}
 }
 
 /// Moves events from the bounded ingest queue into the store and then, as

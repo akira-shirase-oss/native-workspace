@@ -211,6 +211,40 @@ starting values; changing one needs a measurement and a new entry.
   offer yet (W-2). If no such scope ever exists, the app stays read-only —
   an acceptable outcome. Cost: N4 waits on another project's roadmap.
 
+## Decisions made while building N0 (2026-11-16)
+
+- **D-026 — The event list is an AppKit table, because it was measured.**
+  The first shell drew the bounded history with a SwiftUI `List`. Under the
+  fixture load (1,000 events/s plus 10,000-event bursts) one main-thread wait
+  lasted 72.2 s, then 78.6 s in a second run, with a footprint peak of
+  1.7–2.0 GB. `sample(1)` put every main-thread sample in SwiftUI's
+  `OutlineListCoordinator.diffRows` → `NSTableView endUpdates` →
+  automatic row heights for *inserted* rows: a hosting view per inserted row,
+  each adding a window KVO observer whose cost grows with the ones before it —
+  quadratic in a batch. Now an `NSTableView` with fixed row heights and
+  `reloadData` builds only visible rows: same load, 0 hangs, worst wait
+  61.6 ms, peak 83 MB (`perf/results/app/README.md`). Given up: a pure
+  SwiftUI list and multi-line rows in the list (a detail view shows a full
+  line, N2). The old list stays behind `NW_EVENT_LIST=swiftui-list` so the
+  profiling drill can be reproduced.
+- **D-027 — The transport enforces its own hard deadline.** URLSession's
+  resource timeout is not one: a response without `Content-Type` was held for
+  content sniffing and a 2 s limit took about 4 s. Every request now also has
+  a timer that cancels it at the deadline and reports `timeout`. The poll
+  deadline can be raised for measurement (`NW_POLL_DEADLINE_S`, 0.2–10 s);
+  that never delays the stale label, which is derived from time (live only
+  within one poll interval plus the 1 s grace). Cost: one timer per request.
+- **D-028 — N0 layout and toolchain.** One SwiftPM package at the repository
+  root: pure library targets, the shell, and three executables (the app,
+  `nw-replay`, `nw-fixture-server`); the fixtures target is never linked into
+  the app (architecture check). Deployment target macOS 26 (D-023); CI on
+  `macos-26` with Xcode 26.6 pinned, the checkout action pinned by SHA,
+  `contents: read`. The Xcode project — signing, App Sandbox, the entitled
+  data-protection Keychain, UI tests — is N1. Cost: until then the app is an
+  unsigned SwiftPM executable, pairing comes from the process environment, and
+  the Keychain round-trip test skips with `errSecMissingEntitlement` (stated,
+  not passed).
+
 ## Open questions (still open)
 
 These need the maintainer or another project; each is in the README's

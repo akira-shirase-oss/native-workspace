@@ -1,0 +1,69 @@
+{
+  "acknowledged_by_service": {
+    "durable-runner": 5,
+    "service-monitor": 10
+  },
+  "acknowledged_events": 15,
+  "acknowledged_lost": 0,
+  "acknowledged_lost_after_reopen": 0,
+  "backoff": {
+    "base_s": 1,
+    "cap_s": 30,
+    "jitter": 0.2
+  },
+  "commit": "64c10e43930f743e7cb15011db2526bd07a62188+dirty",
+  "cycles": [
+    {
+      "acknowledged_before_kill": 9,
+      "cycle": 1,
+      "down_s": 5.2749998569488525,
+      "recovered": true,
+      "recovery_after_restart_s": 0.18166708946228027,
+      "stale_after_kill_s": {}
+    },
+    {
+      "acknowledged_before_kill": 12,
+      "cycle": 2,
+      "down_s": 4.878999948501587,
+      "recovered": true,
+      "recovery_after_restart_s": 0.11684393882751465,
+      "stale_after_kill_s": {}
+    },
+    {
+      "acknowledged_before_kill": 12,
+      "cycle": 3,
+      "down_s": 5.018999814987183,
+      "recovered": true,
+      "recovery_after_restart_s": 0.11011207103729248,
+      "stale_after_kill_s": {}
+    }
+  ],
+  "drill": "disconnect-restart against real scratch services (SIGKILL + restart)",
+  "duplicate_rows": 0,
+  "duplicates_refused": 0,
+  "durable_runner_main": "ed29802fa5f4301a038ab1805452c03b8ca451aa",
+  "grace_s": 1,
+  "green_while_not_live_samples": 0,
+  "live_while_down_samples": 226,
+  "machine": {
+    "cores": 12,
+    "cpu": "Apple M2 Pro",
+    "load_average_at_end": [
+      70.8134765625,
+      57.65478515625,
+      46.998046875
+    ],
+    "macos": "27.2.1",
+    "model": "Mac14,10"
+  },
+  "pass": false,
+  "poll_interval_s": 2,
+  "polls": {
+    "durable-runner": 14,
+    "service-monitor": 14
+  },
+  "service_monitor_main": "9c51ff1a14b35e1873e8d3840bd8f78f1e4e4c7d",
+  "stored_events": 15,
+  "test_exit_status": 1,
+  "toolchain": "Xcode 27.2 Build version 27B52"
+}

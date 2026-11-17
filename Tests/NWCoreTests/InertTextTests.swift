@@ -1,3 +1,4 @@
+import Foundation
 import XCTest
 
 @testable import NWCore
@@ -59,6 +60,19 @@ final class InertTextTests: XCTestCase {
     }
   }
 
+  func testTheCommittedFixtureFileRendersInert() throws {
+    let url = URL(fileURLWithPath: #filePath)
+      .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+      .appendingPathComponent("fixtures/hostile-log-lines.json")
+    struct File: Decodable { let lines: [String] }
+    let file = try JSONDecoder().decode(File.self, from: Data(contentsOf: url))
+    XCTAssertGreaterThanOrEqual(file.lines.count, 15)
+    XCTAssertTrue(Set(HostileFixture.lines).isSubset(of: Set(file.lines)), "code and file drifted")
+    for line in file.lines {
+      XCTAssertFalse(InertText.render(line).unicodeScalars.contains { InertText.mustEscape($0) })
+    }
+  }
+
   func testLongTextIsCutAndTheCutIsStated() {
     let long = String(repeating: "x", count: 5_000)
     let rendered = InertText.render(long, maxScalars: 100)
@@ -78,7 +92,7 @@ enum HostileFixture {
     "admin\u{2066}\u{2069} is fine",
     "\u{9B}31mC1 CSI\u{9B}0m",
     "zero\u{200B}width\u{FEFF}joiner\u{200D}",
-    "first line\nFORGED: second row",
+    "first line\nFORGED: second row looks like a new event",
     "carriage\rreturn overwrite",
     "tag\u{E0041}\u{E0042}chars",
     "nul\u{0}byte and bell\u{07}",

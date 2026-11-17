@@ -100,6 +100,8 @@ public struct IngestStats: Sendable, Equatable, Codable {
   /// Events waiting now, and the most that ever waited (never above capacity).
   public var depth: Int = 0
   public var maxDepth: Int = 0
+
+  public init() {}
 }
 
 private struct Gap: Sendable {
